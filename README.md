@@ -11,18 +11,19 @@ MLS data requires a broker/IDX relationship — not something to build here as a
 
 ## Architecture
 
-Three containers, one `docker-compose.yml`:
+Four services in one `docker-compose.yml` (three run by default; `mcp-server` is opt-in):
 
 | Service | What it is | Host port |
 |---|---|---|
-| `db` | Plain Postgres 16 + PostGIS image — no custom build, schema setup is entirely owned by `backend`'s migration runner | not published — reachable only from `backend` over the compose network |
+| `db` | Plain Postgres 16 + PostGIS image — no custom build, schema setup is entirely owned by `backend`'s migration runner | not published — reachable only from `backend`/`mcp-server` over the compose network |
 | `backend` | Express API + the Cadastral ingestion job + migration runner | not published — reachable only through `frontend`'s nginx proxy |
 | `frontend` | Vite/React dashboard, built and served via nginx (which also proxies `/api/*` to `backend`) | 8080 (→ nginx 80) |
+| `mcp-server` | MCP tools over the same data, for Claude — **opt-in** (`profiles: ["mcp"]`, doesn't start on a plain `docker compose up`) | 3100 — published directly (no nginx in front of it), gated by `MCP_TOKEN` |
 
-Only `frontend` is exposed to the host/internet — `db` and `backend` are reachable only over
-the internal compose network. (If you need direct `psql` or API access for debugging,
-temporarily uncomment the commented-out `ports:` line for that service in
-`docker-compose.yml`.)
+Only `frontend` (and `mcp-server`, if enabled) are exposed to the host/internet — `db` and
+`backend` are reachable only over the internal compose network. (If you need direct `psql`
+or API access for debugging, temporarily uncomment the commented-out `ports:` line for
+that service in `docker-compose.yml`.)
 
 **Schema migrations:** `backend/db/migrations/*.sql`, applied automatically on every backend
 startup by `backend/src/db/migrate.js` (tracked in a `schema_migrations` table, already-applied
@@ -99,6 +100,20 @@ in production, so the frontend code doesn't need to know which mode it's running
   all inferred from owner-name/address text patterns already in the data, not an
   authoritative classification
 
+## MCP server (optional)
+
+Exposes the same data as MCP tools (`list_counties`, `search_properties`, `get_property`,
+`get_market_metrics`, `find_multi_parcel_owners`) so Claude can query it directly. Doesn't
+start by default — enable it with:
+```bash
+docker compose --profile mcp up -d --build
+```
+(In Portainer: set the stack's profile to `mcp`, or redeploy with that profile enabled.)
+Requires `MCP_TOKEN` — the server refuses to start without it. Add it to Claude Desktop/Code
+as a remote MCP server at `http://<host>:3100/mcp` with an `Authorization: Bearer <token>`
+header. See "Phase 8" in the plan doc for the full design and known follow-ups (it currently
+reuses `backend`'s DB credentials rather than a dedicated read-only role).
+
 ## Useful scripts (run inside the `backend` container, or locally with `npm run <script>`)
 
 | Script | What it does |
@@ -109,6 +124,6 @@ in production, so the frontend code doesn't need to know which mode it's running
 
 ## Next steps
 
-See "Phase 4: Implementation Roadmap" in the plan doc for what's done vs. outstanding.
-The main remaining item is the Phase 8 MCP server (planned in detail, paused on one open
-decision: local vs. remote transport).
+See "Phase 4: Implementation Roadmap" and "Week 6+" in the plan doc for what's done vs.
+outstanding — mobile responsiveness testing and a dedicated read-only DB role for
+`mcp-server` are the more notable open items.

@@ -67,5 +67,42 @@ services:
     ports:
       - "8080:80"
 
+  mcp-server:
+    build: ./mcp-server
+    container_name: montana-ret-mcp
+    restart: unless-stopped
+    # Not started by default — a plain `docker compose up` (or a Portainer deploy with no
+    # profile set) skips this entirely. Opt in with `docker compose --profile mcp up` (or
+    # Portainer's equivalent) once MCP_TOKEN is set below.
+    profiles: ["mcp"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3100
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-montana_real_estate}
+      PGUSER: ${POSTGRES_USER:-mret}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the stack environment}
+      # Required — the server refuses to start without it (fails closed rather than
+      # running with no auth at all). Deliberately not using compose's ${VAR:?...}
+      # hard-require here since this service is profile-gated and shouldn't block
+      # deploying the rest of the stack for anyone not using it; the app itself enforces
+      # this instead (see mcp-server/src/server.js).
+      MCP_TOKEN: ${MCP_TOKEN:-}
+    # Published directly to the host — unlike backend/db, there's no nginx in front of
+    # this, and the whole point of choosing remote HTTP transport (see Phase 8 in the
+    # plan doc) is being reachable from wherever you run Claude, not just the compose
+    # network. MCP_TOKEN is the access control for this exposure.
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
 volumes:
   db_data:

@@ -395,62 +395,61 @@ Once Phase 1 is done, we can map out exact scraper logic.
 
 ---
 
-## Phase 8: MCP Server Integration (planned 2026-08-14, not yet built)
+## Phase 8: MCP Server Integration ✅ Done (2026-08-15)
 
 You asked to add "anything MCP related" to this project (fitting, given it lives under
-`Apps/MCP/`). The natural fit: expose the same parcel/ownership/assessed-value data the
-dashboard shows as **MCP tools**, so Claude (Desktop or Code) can query it directly in
-natural language — "which parcels in Ravalli County are owned by out-of-state LLCs",
-"total assessed value across Gallatin County vacant land" — without the dashboard's fixed
-UI in the way. This is genuinely low-effort on top of what already exists: the DB schema
-and query patterns are already built in `backend/src/routes/*.js`; an MCP server is mostly
-the same SQL behind a different protocol.
+`Apps/MCP/`). Exposes the same parcel/ownership/assessed-value data the dashboard shows
+as **MCP tools**, so Claude (Desktop or Code) can query it directly in natural language —
+"which parcels in Ravalli County are owned by out-of-state LLCs", "total assessed value
+across Gallatin County vacant land" — without the dashboard's fixed UI in the way.
 
-### Architecture
-- New `mcp-server/` service — 4th container in `docker-compose.yml`, alongside `db`,
-  `backend`, `frontend`
-- Node.js + `@modelcontextprotocol/sdk`
-- Reads from the same Postgres DB as `backend` (same `PG*` env vars) — read-only queries
-  only, no write tools. Worth giving it its own Postgres role with `SELECT`-only grants
-  rather than reusing the backend's full-access user, since it's a new trust boundary
-  (whatever can call the MCP tools gets query access, even if scoped to read-only SQL)
-- Shares query logic with the REST API rather than duplicating it — pull the SQL out of
-  `backend/src/routes/*.js` into a small `backend/src/db/queries.js` (or a shared package)
-  that both the Express routes and the MCP tool handlers call
+### What was built
+- `mcp-server/` — 4th service in `docker-compose.yml`, `profiles: ["mcp"]` (not started by
+  a plain `docker compose up`; opt in with `docker compose --profile mcp up` once
+  `MCP_TOKEN` is set — this keeps it from blocking a default deploy for anyone not using it)
+- Node.js + `@modelcontextprotocol/sdk` (v1.30), **Streamable HTTP transport in stateless
+  mode** (a fresh `McpServer` + transport per request, no session tracked between calls —
+  simpler and more robust than the stateful session-map pattern for a tool-calling server
+  with no server-initiated notifications). Verified against the live SDK by reading its
+  own bundled reference example (`examples/server/simpleStatelessStreamableHttp.js`)
+  rather than relying on possibly-stale memory of the API, and by sending real JSON-RPC
+  `initialize`/`tools/list`/`tools/call` requests against a running instance to confirm
+  the protocol handshake, tool schemas, and error handling all work correctly
+- Published directly to the host on port 3100 (unlike `db`/`backend`, there's no nginx in
+  front of it — the whole point of choosing remote transport is being reachable from
+  wherever you run Claude). `MCP_TOKEN` bearer-auth is required — the server refuses to
+  start at all if it's unset, rather than running with no auth
+- Reads from the same Postgres DB as `backend` (same `PG*` env vars)
 
-### Proposed tools (mirrors the existing REST surface, read-only)
-- `list_counties` — per-county parcel count, total/avg assessed value (same as `GET /api/counties`)
-- `search_properties` — county (required), free-text owner/address/parcel-ID search, property type, value range, limit
-- `get_property` — full detail by parcel ID or internal ID, including legal description
-- `get_market_metrics` — aggregate trend data per county (once Phase 4 Week 3 populates it)
-- `find_multi_parcel_owners` — owners holding more than N parcels in a county (a query the
-  fixed dashboard UI doesn't expose, but is a one-line `GROUP BY owner_name HAVING COUNT(*) > N`
-  — the kind of ad hoc thing MCP access is actually good for beyond what the website offers)
+### Tools (all read-only)
+- `list_counties`, `search_properties`, `get_property`, `get_market_metrics`,
+  `find_multi_parcel_owners` — same surface as originally planned, matching what the REST
+  API and dashboard expose
 
-### Open decision: transport + exposure
+### Deviations from the original plan (deliberate, not oversights)
+- **Own SQL, not shared with `backend/src/routes/*.js`.** The original plan proposed
+  extracting query logic into a shared `backend/src/db/queries.js`. At 5 tools, that
+  coupling wasn't worth it yet — this is a separate service with its own trust boundary
+  and looser (LLM-driven) input shapes; duplicating a handful of queries is simpler than
+  introducing a shared module both services depend on. Worth revisiting if the tool count
+  grows enough that the duplication actually hurts.
+- **Reuses `backend`'s full DB credentials rather than a dedicated read-only Postgres
+  role.** The original plan called for `SELECT`-only grants. Not yet done — the MCP tools
+  only ever issue read queries in practice, but nothing at the database level currently
+  enforces that. Worth doing as a follow-up hardening step (`CREATE ROLE mcp_readonly ...
+  GRANT SELECT ON properties, market_metrics TO mcp_readonly`), especially before pointing
+  this at anything more sensitive than public parcel records.
 
-This is the one part that needs a call before building, because it changes the shape of the
-server:
-
-- **Local (stdio)** — the MCP server runs as a local process that Claude Desktop/Code spawns
-  directly (standard `claude_desktop_config.json` entry pointing at a local script or a
-  `docker exec`). Simplest, zero network exposure, but only usable from whichever machine
-  it's configured on — doesn't fit "deployed via Portainer" the way the web stack does,
-  since stdio can't cross a network boundary to a remote Docker host.
-- **Remote (Streamable HTTP)** — the MCP server listens on its own port (e.g. `3100`) like
-  the other 3 services, deployed in the same Portainer stack, reachable at
-  `http://<host>:3100/mcp` from any machine running Claude that's configured to add it as a
-  remote MCP server. Matches how the rest of this stack is being deployed, but means a query
-  surface over real (if public-record) ownership data is reachable over the network — at
-  minimum should stay on a private/VPN network rather than being port-forwarded publicly;
-  a shared-secret bearer token is a reasonable low-effort guard if broader reach is needed.
-
-**Not yet decided — will confirm with you before building this phase.**
-
-### Effort estimate
-Small — roughly 3-5 hours, mostly because the hard part (schema, query patterns, live data)
-already exists from Phases 1-2. Mostly wiring `@modelcontextprotocol/sdk` tool handlers to
-queries that already exist in `backend/src/routes/`.
+### How to connect a client
+```bash
+# In Portainer, redeploy the stack with the mcp profile enabled and MCP_TOKEN set, then:
+curl -X POST http://<host>:3100/mcp \
+  -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
+  -H "Authorization: Bearer $MCP_TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}'
+```
+Add it to Claude Desktop/Code as a remote MCP server pointed at `http://<host>:3100/mcp`
+with the `Authorization: Bearer <token>` header configured.
 
 ---
 
