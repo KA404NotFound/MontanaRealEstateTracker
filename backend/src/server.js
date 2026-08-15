@@ -4,6 +4,7 @@ import cron from "node-cron";
 import { pool } from "./db/pool.js";
 import { describeError } from "./lib/describeError.js";
 import { ingestAllCounties, TARGET_COUNTIES } from "./ingestion/runAll.js";
+import { loadCountyToDb } from "./ingestion/loadToDb.js";
 import countiesRouter from "./routes/counties.js";
 import propertiesRouter from "./routes/properties.js";
 import marketMetricsRouter from "./routes/marketMetrics.js";
@@ -54,6 +55,38 @@ app.post("/api/ingest", (req, res) => {
   res.json({ status: "started", counties: TARGET_COUNTIES });
   ingestAllCounties(pool)
     .catch((err) => console.error("Ingestion failed:", err))
+    .finally(() => {
+      ingestionInProgress = false;
+    });
+});
+
+// POST /api/ingest/:county — re-ingest a single county. Same auth as the full-run
+// endpoint above, but scoped — useful for re-running just the counties affected by a
+// fix (e.g. a schema change) without waiting for a full ~56-county run to redo
+// everything. County names with spaces need URL-encoding, e.g. "Lewis%20and%20Clark".
+app.post("/api/ingest/:county", (req, res) => {
+  if (!INGEST_TOKEN) {
+    return res.status(503).json({ error: "ingest endpoint disabled — set INGEST_TOKEN to enable" });
+  }
+  const auth = req.get("authorization") || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (provided !== INGEST_TOKEN) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  const { county } = req.params;
+  if (!TARGET_COUNTIES.includes(county)) {
+    return res.status(400).json({ error: `unrecognized county: ${county}` });
+  }
+  if (ingestionInProgress) {
+    return res.status(409).json({ status: "already running" });
+  }
+  ingestionInProgress = true;
+  res.json({ status: "started", county });
+  loadCountyToDb(pool, county, { log: console.log })
+    .then(({ loaded, failed }) =>
+      console.log(`${county} County re-ingest complete: ${loaded} upserted${failed ? `, ${failed} skipped` : ""}.`)
+    )
+    .catch((err) => console.error(`${county} County re-ingest failed:`, err))
     .finally(() => {
       ingestionInProgress = false;
     });

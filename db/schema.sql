@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS properties (
   total_building_value   INTEGER,
   total_value            INTEGER,
   tax_year               INTEGER,
-  levy_district           VARCHAR(50),
+  levy_district           VARCHAR(255), -- some counties (e.g. Granite, Stillwater) spell this out in full rather than a short code; observed max 62 chars statewide
   township                VARCHAR(20),
   range                   VARCHAR(20),
   section                  VARCHAR(20),
