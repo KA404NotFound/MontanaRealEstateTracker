@@ -27,7 +27,7 @@ const REQUEST_DELAY_MS = 600;
 // Montana county name -> 5-digit FIPS code. Verified against the official FCC FIPS list
 // (transition.fcc.gov/oet/info/maps/census/fips/fips.txt), cross-checked against
 // Wikipedia's List of counties in Montana — both agree exactly. Keys must match
-// TARGET_COUNTIES (runAll.js) spelling precisely.
+// TARGET_COUNTIES (targetCounties.js) spelling precisely.
 const COUNTY_FIPS = {
   Beaverhead: "30001",
   "Big Horn": "30003",
@@ -140,19 +140,36 @@ async function fetchCountyMarketData(county, apiKey) {
   const fips = COUNTY_FIPS[county];
   if (!fips) throw new Error(`No FIPS code mapped for county: ${county}`);
 
-  const result = {};
-  let periodDate = null;
-
+  // The three metrics are independent FRED series that don't always update in lockstep
+  // (revision timing, a temporarily-suppressed low-volume month, etc. routinely cause a
+  // month of skew between siblings for the same county). Taking each series' own latest
+  // date and writing every value under a single max() date would silently misattribute a
+  // stale value to a period it doesn't actually belong to. Instead: collect each metric
+  // with its own real date, pick whichever date the most metrics agree on (ties broken
+  // toward the more recent one), and only keep values that actually match that date —
+  // a metric that's out of step with the rest gets dropped for this run, not mislabeled.
+  const observations = {};
   for (const { seriesPrefix, column } of METRICS) {
     const obs = await fetchLatestObservation(`${seriesPrefix}${fips}`, apiKey);
     await sleep(REQUEST_DELAY_MS);
-    if (obs) {
-      result[column] = obs.value;
-      if (!periodDate || obs.date > periodDate) periodDate = obs.date;
-    }
+    if (obs) observations[column] = obs;
   }
 
-  if (Object.keys(result).length === 0) return null;
+  const dates = Object.values(observations).map((o) => o.date);
+  if (dates.length === 0) return null;
+
+  const dateCounts = {};
+  for (const d of dates) dateCounts[d] = (dateCounts[d] || 0) + 1;
+  const [periodDate] = Object.keys(dateCounts).sort((a, b) => {
+    const byAgreement = dateCounts[b] - dateCounts[a];
+    return byAgreement !== 0 ? byAgreement : a < b ? 1 : -1;
+  });
+
+  const result = {};
+  for (const [column, obs] of Object.entries(observations)) {
+    if (obs.date === periodDate) result[column] = obs.value;
+  }
+
   return { ...result, periodDate };
 }
 

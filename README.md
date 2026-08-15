@@ -92,7 +92,7 @@ in production, so the frontend code doesn't need to know which mode it's running
 - Property detail panel (owner, mailing address, assessed value breakdown, acreage, legal
   description) on click
 - CSV export of the current filtered view (up to 50,000 rows)
-- Assessed Value Trends panel per county — two kinds of rows can appear: a self-computed
+- Market Trends panel per county — two kinds of rows can appear: a self-computed
   assessed-value snapshot (every county, always available, computed from ingested parcel
   data — not a sale price) and, where a FRED series exists (populous counties only —
   optional, needs `FRED_API_KEY`), real median-listing-price/active-listings/days-on-market
@@ -122,7 +122,7 @@ reuses `backend`'s DB credentials rather than a dedicated read-only role).
 | Script | What it does |
 |---|---|
 | `npm run verify` | Compares each county's actual row count against a live re-count from the Cadastral API — the way to check ingestion actually completed cleanly |
-| `npm run compute-metrics` | Recomputes the Assessed Value Trends data immediately, without waiting for (or triggering) a full re-ingestion |
+| `npm run compute-metrics` | Recomputes the self-computed assessed-value half of Market Trends immediately, without waiting for (or triggering) a full re-ingestion |
 | `npm run ingest:cadastral -- Flathead` | Fetches one county's parcels and prints a sample, without touching the database — useful for testing the API client in isolation |
 | `npm run ingest:fred` | Pulls real listing-price/inventory/DOM data per county from FRED immediately (requires `FRED_API_KEY`), without waiting for a full ingestion run |
 

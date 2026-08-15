@@ -155,19 +155,23 @@ export function registerTools(server) {
   server.registerTool(
     "get_market_metrics",
     {
-      title: "Get Assessed Value Trend",
+      title: "Get Market Metrics",
       description:
-        "Get the assessed-value trend snapshot for a county. This is median/average tax-ASSESSED " +
-        "value, computed from ingested parcel data — NOT a sale price or MLS/listing feed, since " +
-        "Montana does not publicly disclose real estate sale prices and no free structured source of " +
-        "real market activity covers all counties.",
+        "Get market data snapshots for a county. Two kinds of rows can appear, distinguished by " +
+        "`source`: a self-computed ASSESSED-value snapshot (every county, always available — " +
+        "median_price/avg_price only, no listing data) and, only where a FRED series exists " +
+        "(populous counties — small counties routinely have none), real median LISTING price / " +
+        "active listing count / median days on market from Realtor.com via FRED. Check `source` on " +
+        "each row before interpreting median_price — it means different things depending on which " +
+        "kind of row it is. Neither is a sale price: Montana does not publicly disclose real estate " +
+        "sale prices, and no free structured source of real sale/transaction data covers all counties.",
       inputSchema: {
         county: z.string().describe("County name, exact match"),
       },
     },
     tool(async ({ county }) => {
       const { rows } = await pool.query(
-        `SELECT period_date, period_type, source, median_price, avg_price, notes
+        `SELECT period_date, period_type, source, median_price, avg_price, active_listings, avg_days_on_market, notes
          FROM market_metrics WHERE county = $1 ORDER BY period_date DESC`,
         [county]
       );
