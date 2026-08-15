@@ -16,9 +16,16 @@ services:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # First-ever start runs CREATE EXTENSION postgis + populates spatial_ref_sys
+      # (~8,500 rows) before Postgres is actually up — commonly 60-90s+ on modest
+      # hardware. Failures during start_period don't count toward `retries`, so this
+      # gives that first-time init room without needing to hand-tune retries/interval
+      # for what's a one-time cost (subsequent restarts with the volume already
+      # initialized come up in a few seconds).
+      start_period: 120s
 
   backend:
     build: ./backend
