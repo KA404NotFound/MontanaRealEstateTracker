@@ -270,7 +270,13 @@ CREATE TABLE watchlist (
 - [x] Connect frontend to backend API (nginx reverse-proxies `/api/*` to the `backend` container — same-origin from the browser, no CORS setup needed; `vite.config.js` dev proxy mirrors this locally)
 - [x] Deploy — **revised from the original Vercel plan**: this is now one `docker-compose.yml` (db + backend + frontend containers) deployed as a single Portainer stack pulled from this GitHub repo, per your call to make this "an all in one docker website" rather than split across Vercel + a separate DB host
 
-**Deliverable:** Live dashboard accessible at deployed URL — a parcel/ownership/assessed-value explorer with aggregate market context, not a listings site. **Status:** code complete and building clean (`npm run build` verified, Express routes smoke-tested locally); not yet deployed/verified end-to-end on the actual Portainer host.
+**Deliverable:** Live dashboard accessible at deployed URL — a parcel/ownership/assessed-value explorer with aggregate market context, not a listings site. **Status: deployed and live** on Portainer (db + backend + frontend, one stack).
+
+**Post-launch scope growth (2026-08-15), not in the original Weeks 1-5 plan:**
+- Expanded coverage from the original 6 counties to **all 56 Montana counties** (~920k raw parcels, ~886k after excluding null-PARCELID filler geometry) — trivial given the Cadastral API is already statewide; just a `TARGET_COUNTIES` config change
+- Replaced fixed "top-200-by-value per county" map/table queries with **viewport-based querying** — results now scope to the map's actual bounding box (`geom && ST_MakeEnvelope(...)`, GIST-indexed), and the county selector became a dropdown with an "All Counties" option, since neither the old card-row selector nor value-sorted-only queries hold up at statewide scale
+- A round of production hardening after first deploy: idle-pool crash fix, per-row ingestion fault isolation + retry (a bad batch no longer aborts an entire county, a failed county no longer aborts the rest of the run), self-healing startup (restarts fill in whatever's missing instead of silently sitting incomplete), token-gated manual/per-county re-ingest endpoints, tightened container port exposure, a parameter-array mutation bug in the properties list query, and a `levy_district` column too narrow for how some counties (Granite, Stillwater) format that field
+- `backend/src/ingestion/verify.js` — compares actual DB row counts per county against a live re-count from the Cadastral API, for ongoing data-completeness checks
 
 ---
 
@@ -279,9 +285,11 @@ CREATE TABLE watchlist (
 - [ ] **Assessed-value heatmap** — Visualize `TotalValue`/acre by area
 - [ ] **Year-over-year assessment change tracking** — snapshot `TotalValue` each ingestion run, chart drift over time
 - [ ] **Export** — Download filtered results as CSV
-- [ ] **Mobile Responsiveness**
-- [ ] **Performance** — spatial indexes, caching for fast map queries
+- [ ] **Mobile Responsiveness** — one CSS breakpoint added, not tested on an actual device
+- [x] **Performance (partial)** — geometry (GIST) and `total_value` indexes added; no caching layer yet
 - [ ] **Revisit listings/sold-price data** — only via a legitimate path (paid IDX/data vendor), if still wanted, per the Phase 1 decision
+- [ ] **Frontend stale-response guard** — rapid pan/zoom fires overlapping property fetches with no `AbortController`/request-ordering check; a slower response can in principle resolve after a newer one and show stale results. Not yet observed as an actual bug, but the risk is more live now that panning refetches frequently
+- [ ] **DB migration tooling** — two schema changes so far (`levy_district` width, `total_value` index) both required a manually-run `ALTER`/`CREATE INDEX` against the live DB via the Portainer console, since `schema.sql` only applies on a fresh volume. Fine at current scale, will keep costing a manual step per future schema change until this exists
 
 **Deliverable:** Enhanced dashboard with additional features and analytics
 
