@@ -24,8 +24,13 @@ router.get("/summary", async (req, res, next) => {
         owner_name,
         COUNT(*)::int AS parcel_count,
         SUM(total_value)::bigint AS total_assessed_value,
-        MAX(owner_city) AS owner_city,
-        MAX(owner_state) AS owner_state
+        -- city/state must come from the same row — independent MAX(owner_city) /
+        -- MAX(owner_state) can each pick from a *different* parcel's mailing address
+        -- (an owner can have several on file), producing a city/state pair that never
+        -- actually existed together. ARRAY_AGG with the same ORDER BY for both keeps
+        -- them paired from a single consistent row.
+        (ARRAY_AGG(owner_city ORDER BY id))[1] AS owner_city,
+        (ARRAY_AGG(owner_state ORDER BY id))[1] AS owner_state
       FROM properties
       WHERE owner_name IS NOT NULL ${countyFilter}
       GROUP BY owner_name
