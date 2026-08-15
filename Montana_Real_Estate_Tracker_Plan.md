@@ -2,6 +2,43 @@
 
 ---
 
+## Phase 1 Findings (2026-08-14) — Revised Data Strategy
+
+Research into actual Montana data sources significantly changes the Phase 1/4 approach. **This replaces the "6 separate county scrapers" assumption with one statewide API for the core property data.**
+
+### 1. Statewide parcel/assessor data — one API covers all 6 counties
+
+The **Montana Cadastral Framework** (Montana State Library + Dept. of Revenue, sourced from DOR's ORION appraisal system) is queryable live via ArcGIS REST — no per-county HTML scraping needed for ownership/assessment data:
+
+- **Endpoint:** `https://gisservice.mt.gov/arcgis/rest/services/msdi_cadastral_map_v1/MapServer/1`
+- **Query:** standard Esri REST query params (`where=`, `outFields=`, `f=geojson|json|pbf`), filterable by `CountyName`/`COUNTYCD`
+- **Max 2,000 records/query** → need paginated queries (`resultOffset`/`resultRecordCount`), but that's a solved problem, not per-county parsing logic
+- **Fields include:** `PARCELID`, `CountyName`, `OwnerName`, `OwnerAddress1-3/City/State/Zip`, `AddressLine1-2`, `CityStateZip`, `PropType`, `TotalAcres` (+ acreage breakdowns: irrigated/grazing/forest/etc.), `TotalLandValue`, `TotalBuildingValue`, `TotalValue`, `TaxYear`, `LevyDistrict`, `Township/Range/Section`, `Subdivision`, `Shape` (polygon geometry)
+- Bulk alternative: monthly statewide shapefile/geodatabase exports via MSL FTP (`ftp.geoinfo.msl.mt.gov/Data/Spatial/MSDI/Cadastral/Parcels/Statewide/`) if we want a local mirror instead of hitting the live service repeatedly
+- **Effect on plan:** collapses Week 2 ("Scraper v1 Flathead") + Week 4 ("adapt per county") into a single ingestion client. County-specific scraper work is no longer needed for the `properties` table.
+
+### 2. Critical constraint: Montana is a non-disclosure state — sale prices are NOT public
+
+Verified via MCA and the Realty Transfer Certificate (RTC) statute: sellers must file an RTC with the county/DOR on transfer, but **the certificate and the price on it are statutorily confidential** — the county clerk/recorder and DOR are required to withhold it from the public. This directly invalidates the original `sales.sale_price` / deed-sourced `price_history` design:
+
+- **What deed records DO give us (public):** the fact and date of a transfer, grantor/grantee names, instrument type, legal description — via county Clerk & Recorder indexes. For Flathead: records 1984+ are indexed through **iDocMarket** (subscription/per-document fee), pre-1984 via County Record Archives. No free bulk deed price data exists.
+- **What they do NOT give us:** sale price. That has to come from a non-county source (MLS-syndicated "sold" data via Zillow/Redfin, or nothing).
+
+### 3. MLS access is not a public data source
+
+**406MLS (Montana Regional MLS)** listing/IDX data is only available through NAR-governed IDX feeds, which require a broker/vendor agreement — not something scrapeable or open to a hobby project without a real estate license or paid vendor relationship (e.g., IDX Broker, PeakIDX). Local REALTOR associations (e.g., NMAR) publish aggregate market reports only, not per-listing data.
+
+### 4. Remaining open question: where do listings + sold prices come from?
+
+This is the one piece without a clean, free, ToS-compliant answer, and it's worth deciding deliberately rather than defaulting to scraping Zillow/Redfin (both prohibit scraping in their ToS — legal/blocking risk). Options, roughly in order of friskiness:
+- **Aggregate-only trend data** from NMAR/local board reports (legit, free, but no per-property listings — waters down the "recent listings table" and "map of active listings" features)
+- **Zillow/Redfin scraping** (delivers the v1 feature set as originally scoped, but against ToS — real risk of IP blocks/legal exposure)
+- **Paid data source** (e.g., a licensed-agent IDX relationship, or a commercial real estate data API) — costs money, breaks the "free data only" assumption
+
+**Decision needed from you before Phase 1 is "done."** See question below.
+
+---
+
 ## Phase 1: Research & Data Source Mapping
 
 **Target Counties (5-6):**
