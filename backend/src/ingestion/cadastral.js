@@ -8,6 +8,33 @@ const CADASTRAL_LAYER_URL =
   "https://gisservice.mt.gov/arcgis/rest/services/msdi_cadastral_map_v1/MapServer/1/query";
 
 const MAX_RECORDS_PER_QUERY = 2000; // server-enforced cap
+const MAX_FETCH_RETRIES = 4;
+const FETCH_RETRY_BASE_DELAY_MS = 2000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// A full 6-county run makes 150+ sequential requests to a single government GIS server
+// over 20-40 minutes — a single timeout/502 shouldn't be fatal to the whole run.
+async function fetchWithRetry(url) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`Cadastral query failed: ${res.status} ${res.statusText}`);
+      }
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < MAX_FETCH_RETRIES) {
+        await sleep(FETCH_RETRY_BASE_DELAY_MS * attempt);
+      }
+    }
+  }
+  throw lastErr;
+}
 
 const OUT_FIELDS = [
   "PARCELID",
@@ -67,11 +94,7 @@ export async function fetchCountyParcels(countyName, opts = {}) {
       resultRecordCount: String(MAX_RECORDS_PER_QUERY),
     });
 
-    const res = await fetch(`${CADASTRAL_LAYER_URL}?${params.toString()}`);
-    if (!res.ok) {
-      throw new Error(`Cadastral query failed: ${res.status} ${res.statusText}`);
-    }
-
+    const res = await fetchWithRetry(`${CADASTRAL_LAYER_URL}?${params.toString()}`);
     const body = await res.json();
     if (body.error) {
       throw new Error(`Cadastral query error: ${JSON.stringify(body.error)}`);

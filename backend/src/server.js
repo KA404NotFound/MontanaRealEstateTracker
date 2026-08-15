@@ -26,10 +26,24 @@ app.use("/api/market-metrics", marketMetricsRouter);
 
 let ingestionInProgress = false;
 
+// Full re-ingestion is expensive (20-40+ min, hammers both the Cadastral API and the DB),
+// so unlike the read-only endpoints, this one requires a shared-secret token rather than
+// being open like the rest of the no-auth v1 API. Set INGEST_TOKEN in the environment to
+// enable it; leaving it unset disables the endpoint entirely (fails closed).
+const INGEST_TOKEN = process.env.INGEST_TOKEN;
+
 // POST /api/ingest — manually (re)trigger a full ingestion run. Fire-and-forget: a full
 // 6-county pull is ~355k parcels and can take 20-40+ minutes, so this responds
 // immediately and logs progress to stdout (visible in `docker logs` / Portainer).
 app.post("/api/ingest", (req, res) => {
+  if (!INGEST_TOKEN) {
+    return res.status(503).json({ error: "ingest endpoint disabled — set INGEST_TOKEN to enable" });
+  }
+  const auth = req.get("authorization") || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (provided !== INGEST_TOKEN) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
   if (ingestionInProgress) {
     return res.status(409).json({ status: "already running" });
   }
@@ -68,21 +82,16 @@ app.listen(PORT, async () => {
   try {
     await waitForDb();
 
-    const { rows } = await pool.query("SELECT COUNT(*)::int AS count FROM properties");
-    if (rows[0].count === 0) {
-      console.log(
-        "properties table is empty — starting initial ingestion in the background " +
-          "(all 6 counties, ~355k parcels, expect 20-40+ minutes)..."
-      );
-      ingestionInProgress = true;
-      ingestAllCounties(pool)
-        .catch((err) => console.error("Initial ingestion failed:", err))
-        .finally(() => {
-          ingestionInProgress = false;
-        });
-    } else {
-      console.log(`properties table already has ${rows[0].count} rows — skipping initial ingestion.`);
-    }
+    console.log(
+      "Checking for counties missing data (self-healing: a container restart after a " +
+        "partial/failed run will pick up wherever ingestion left off)..."
+    );
+    ingestionInProgress = true;
+    ingestAllCounties(pool, { onlyMissing: true })
+      .catch((err) => console.error("Startup gap-fill ingestion failed:", err))
+      .finally(() => {
+        ingestionInProgress = false;
+      });
   } catch (err) {
     console.error("Startup DB check failed:", err);
   }

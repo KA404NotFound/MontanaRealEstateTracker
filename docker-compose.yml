@@ -7,8 +7,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-montana_real_estate}
       POSTGRES_USER: ${POSTGRES_USER:-mret}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the stack environment}
-    ports:
-      - "5432:5432"
+    # Not published to the host — only `backend` needs to reach this, over the compose
+    # network by service name (`db:5432`). Publishing 5432 to the host would put Postgres
+    # directly on the internet on any public Portainer host for no operational benefit.
+    # Temporarily uncomment `ports: ["5432:5432"]` here if you need local `psql` access.
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -32,8 +34,12 @@ services:
       PGDATABASE: ${POSTGRES_DB:-montana_real_estate}
       PGUSER: ${POSTGRES_USER:-mret}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the stack environment}
-    ports:
-      - "3000:3000"
+      # Optional: set to enable POST /api/ingest (manual re-ingestion trigger). Left unset,
+      # that endpoint is disabled entirely rather than open with no auth.
+      INGEST_TOKEN: ${INGEST_TOKEN:-}
+    # Not published to the host — `frontend`'s nginx already reverse-proxies /api/* to this
+    # service over the compose network (`backend:3000`), so a separate host port is
+    # redundant exposure. Temporarily uncomment `ports: ["3000:3000"]` for direct debugging.
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s

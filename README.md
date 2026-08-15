@@ -13,16 +13,31 @@ MLS data requires a broker/IDX relationship — not something to build here as a
 
 Three containers, one `docker-compose.yml`:
 
-| Service | What it is | Port |
+| Service | What it is | Host port |
 |---|---|---|
-| `db` | Postgres 16 + PostGIS, schema auto-applied on first start | 5432 |
-| `backend` | Express API + the Cadastral ingestion job | 3000 |
+| `db` | Postgres 16 + PostGIS, schema auto-applied on first start | not published — reachable only from `backend` over the compose network |
+| `backend` | Express API + the Cadastral ingestion job | not published — reachable only through `frontend`'s nginx proxy |
 | `frontend` | Vite/React dashboard, built and served via nginx (which also proxies `/api/*` to `backend`) | 8080 (→ nginx 80) |
 
-The backend automatically ingests all 6 counties (~355k parcels) into `properties` on first
-boot if the table is empty, and re-ingests monthly on a cron schedule (matching how often the
-Cadastral dataset itself is republished). You can also trigger a manual re-ingest:
-`POST /api/ingest`.
+Only `frontend` is exposed to the host/internet — `db` and `backend` are reachable only over
+the internal compose network. (If you need direct `psql` or API access for debugging,
+temporarily uncomment the commented-out `ports:` line for that service in
+`docker-compose.yml`.)
+
+**Ingestion:** on every boot, the backend checks per-county row counts and ingests any of
+the 6 target counties that are missing data (self-healing — if a previous run died partway
+through, the next restart picks up where it left off rather than silently sitting on
+partial coverage). A full refresh of all 6 counties also runs monthly via cron, matching
+how often the Cadastral dataset itself is republished.
+
+A manual full re-ingest is available at `POST /api/ingest`, but it's gated behind an
+`INGEST_TOKEN` — set that env var and pass it as `Authorization: Bearer <token>`, e.g.:
+```bash
+curl -X POST -H "Authorization: Bearer $INGEST_TOKEN" http://<host>:8080/api/ingest
+```
+Leaving `INGEST_TOKEN` unset disables the endpoint entirely (it's the one state-changing,
+expensive endpoint in an otherwise no-auth-by-design v1 — see the plan doc's Phase 5 notes
+on why the rest of the API has no auth).
 
 ## Running it
 
