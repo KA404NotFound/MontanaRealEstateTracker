@@ -121,20 +121,28 @@ app.listen(PORT, async () => {
   try {
     await waitForDb();
     await runMigrations(pool);
-
-    console.log(
-      "Checking for counties missing data (self-healing: a container restart after a " +
-        "partial/failed run will pick up wherever ingestion left off)..."
-    );
-    ingestionInProgress = true;
-    ingestAllCounties(pool, { onlyMissing: true })
-      .catch((err) => console.error("Startup gap-fill ingestion failed:", err))
-      .finally(() => {
-        ingestionInProgress = false;
-      });
   } catch (err) {
-    console.error("Startup DB check failed:", err);
+    // Exiting (rather than just logging) matters here: the migration runner exists
+    // specifically to guarantee schema state before anything queries it. Logging and
+    // continuing would leave the process serving traffic against a DB it never
+    // confirmed was ready/migrated, silently reintroducing the exact failure class
+    // (schema not actually applied) this runner replaced docker-entrypoint-initdb.d to
+    // fix — just via a different code path. `restart: unless-stopped` retries this from
+    // scratch, consistent with the self-healing pattern used everywhere else here.
+    console.error("Startup DB/migration check failed — exiting so the container restarts and retries:", err);
+    process.exit(1);
   }
+
+  console.log(
+    "Checking for counties missing data (self-healing: a container restart after a " +
+      "partial/failed run will pick up wherever ingestion left off)..."
+  );
+  ingestionInProgress = true;
+  ingestAllCounties(pool, { onlyMissing: true })
+    .catch((err) => console.error("Startup gap-fill ingestion failed:", err))
+    .finally(() => {
+      ingestionInProgress = false;
+    });
 
   // The Cadastral dataset itself is republished monthly — re-ingest on the 1st at 3am.
   cron.schedule("0 3 1 * *", () => {

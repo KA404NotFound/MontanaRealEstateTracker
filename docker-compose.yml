@@ -78,6 +78,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      # Schema setup lives entirely in backend's migration runner now (see db's comment
+      # above) — waiting on backend being healthy is the honest proxy for "schema is
+      # ready" here, since backend now exits (and so never becomes healthy) if migrations
+      # fail, rather than starting mcp-server against a database that might not have the
+      # tables it queries yet.
+      backend:
+        condition: service_healthy
     environment:
       PORT: 3100
       PGHOST: db

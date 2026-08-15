@@ -440,6 +440,18 @@ across Gallatin County vacant land" — without the dashboard's fixed UI in the 
   GRANT SELECT ON properties, market_metrics TO mcp_readonly`), especially before pointing
   this at anything more sensitive than public parcel records.
 
+### Known gap: no TLS anywhere in front of port 3100
+
+`mcp-server` is published directly to the host (deliberately — that's the point of
+choosing remote transport), and `MCP_TOKEN` is sent as a plain `Authorization: Bearer`
+header with nothing in this repo terminating TLS in front of it. On a fully trusted LAN
+(how this is deployed today) that's a reasonable v1 tradeoff. It stops being reasonable
+the moment port 3100 is forwarded through a router/VPS firewall to anything beyond that —
+at that point the token is sniffable in transit. Fixing this means putting a
+TLS-terminating reverse proxy (Caddy/Traefik/nginx with a real cert) in front of it, which
+needs a domain/cert decision only you can make — not something to guess at and build
+speculatively. Revisit before exposing this beyond a trusted LAN.
+
 ### How to connect a client
 ```bash
 # In Portainer, redeploy the stack with the mcp profile enabled and MCP_TOKEN set, then:
@@ -450,6 +462,31 @@ curl -X POST http://<host>:3100/mcp \
 ```
 Add it to Claude Desktop/Code as a remote MCP server pointed at `http://<host>:3100/mcp`
 with the `Authorization: Bearer <token>` header configured.
+
+### Post-launch fixes (2026-08-15, from an architecture review of this phase)
+
+- **`get_property` was misrouting virtually every real `parcel_id` lookup.** Montana
+  parcel_id values are themselves long all-digit strings (e.g. `07292313170027002`), so
+  the original `/^\d+$/` "is this the internal id or the parcel_id" check matched them as
+  "numeric" and routed the query to the internal `SERIAL` primary key instead — meaning a
+  direct parcel-number lookup (the tool's primary advertised use case) almost always came
+  back "not found." Fixed to try `parcel_id` first, falling back to `id` only if that
+  misses and the input parses as an integer.
+- **`mcp-server`'s healthcheck was a blind liveness stub** (`{status:"ok"}` unconditionally)
+  despite every tool requiring a DB connection — now actually runs `SELECT 1`, mirroring
+  `backend`'s `/api/health`, so Docker can detect and restart it if `db` becomes unreachable.
+- **A failed migration at `backend` startup was only logged, not fatal** — the process kept
+  serving traffic against a schema it never confirmed was ready, reintroducing (via a new
+  code path) the exact "schema silently didn't apply" failure class the migration runner
+  was built to eliminate. Now exits on failure so `restart: unless-stopped` retries it.
+- `mcp-server` now also `depends_on: backend` (in addition to `db`) — since `backend` no
+  longer becomes healthy if migrations fail (previous point), this is the honest way to
+  keep `mcp-server` from starting against a database whose schema isn't confirmed ready.
+- Optional `MCP_ALLOWED_HOSTS` env var added for DNS-rebinding Host-header validation
+  (off by default — unset keeps prior behavior).
+- `GET /api/properties/export`'s code comment corrected — it does not actually stream
+  (pg buffers the full result set, response is sent as one string); fine at the current
+  50,000-row cap, would need a cursor-based rewrite if that grows much further.
 
 ---
 

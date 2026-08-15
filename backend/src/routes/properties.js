@@ -129,8 +129,12 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// GET /api/properties/export — same filters as the list endpoint, streams a CSV of up
-// to EXPORT_LIMIT matching rows instead of one page. Registered before /:id so a
+// GET /api/properties/export — same filters as the list endpoint, exports up to
+// EXPORT_LIMIT matching rows as CSV instead of one page. Not true streaming — pg
+// buffers the whole result set before this resolves, and the CSV is built as one string
+// and sent in a single res.send(). Fine at 50k narrow rows (a few MB), but if
+// EXPORT_LIMIT grows much further this would need a cursor-based rewrite (e.g.
+// pg-query-stream) with incremental res.write() per batch. Registered before /:id so a
 // literal "export" path segment is never swallowed by the :id param route.
 router.get("/export", async (req, res, next) => {
   try {

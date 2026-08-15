@@ -7,6 +7,12 @@
 // needing a hand-run ALTER/CREATE INDEX via the Portainer console), this runs on every
 // backend startup and actually applies whatever's new to an existing, already-populated
 // database. Safe to run repeatedly — already-applied migrations are skipped.
+//
+// Note for future migrations: each file runs inside BEGIN/COMMIT (below), and Postgres
+// disallows CREATE INDEX CONCURRENTLY inside a transaction block. Fine for the current
+// migrations, but a future migration that needs to add an index to `properties` (now
+// ~920k rows) without locking out reads/writes for the duration will need a carve-out
+// from this wrapper, not just a new numbered file.
 
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";

@@ -121,20 +121,29 @@ export function registerTools(server) {
       },
     },
     tool(async ({ id }) => {
-      const isNumericId = /^\d+$/.test(String(id));
-      const { rows } = await pool.query(
-        `
-        SELECT
-          id, parcel_id, county, owner_name, owner_address_1, owner_address_2, owner_address_3,
-          owner_city, owner_state, owner_zip, dba_name, care_of_taxpayer,
-          address_line1, address_line2, city_state_zip, property_type, prop_access,
-          total_acres, total_land_value, total_building_value, total_value, tax_year,
-          levy_district, township, range, section, subdivision
-        FROM properties
-        WHERE ${isNumericId ? "id = $1" : "parcel_id = $1"}
-        `,
-        [id]
+      const idStr = String(id);
+      const selectColumns = `
+        id, parcel_id, county, owner_name, owner_address_1, owner_address_2, owner_address_3,
+        owner_city, owner_state, owner_zip, dba_name, care_of_taxpayer,
+        address_line1, address_line2, city_state_zip, property_type, prop_access,
+        total_acres, total_land_value, total_building_value, total_value, tax_year,
+        levy_district, township, range, section, subdivision
+      `;
+
+      // Montana parcel_id values are themselves long all-digit strings (e.g.
+      // "07292313170027002"), so a plain /^\d+$/ test can't tell a parcel_id apart from
+      // the internal SERIAL id — both are "numeric". Try parcel_id first (the expected
+      // input for most external lookups) and only fall back to id if that misses and the
+      // input actually parses as one (internal ids only ever come from search_properties
+      // results, so this path matters much less in practice).
+      let { rows } = await pool.query(
+        `SELECT ${selectColumns} FROM properties WHERE parcel_id = $1`,
+        [idStr]
       );
+
+      if (rows.length === 0 && /^\d+$/.test(idStr)) {
+        ({ rows } = await pool.query(`SELECT ${selectColumns} FROM properties WHERE id = $1`, [Number(idStr)]));
+      }
 
       if (rows.length === 0) {
         return { content: [{ type: "text", text: `No property found for id/parcel_id: ${id}` }], isError: true };
