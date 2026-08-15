@@ -488,6 +488,51 @@ with the `Authorization: Bearer <token>` header configured.
   (pg buffers the full result set, response is sent as one string); fine at the current
   50,000-row cap, would need a cursor-based rewrite if that grows much further.
 
+### Post-launch fixes, round 2 (2026-08-15, review of the viewport-query/analytics range)
+
+A second review targeted an earlier range of commits (the viewport-based querying,
+self-computed market metrics, and ownership analysis work) that had been skipped over by
+the first review's narrower scope. Found and fixed:
+
+- **The initial page-load stale-response race flagged as a risk earlier was confirmed
+  real** (two overlapping viewport fetches fire on every load: the map's initial-mount
+  bounds report, then a second one once the statewide fly-to animation settles) — but
+  it's already resolved by the AbortController work in the first post-launch fix round,
+  which landed after this range. No action needed, just confirmed.
+- **The ownership-summary fetch had no `AbortController`** (unlike properties/detail,
+  which do) — switching counties quickly could let a stale response overwrite a newer
+  one. Fixed with the same pattern.
+- **Top-owners query used `ARRAY_AGG` over entire groups just to read one element** —
+  cost scaled with group size, worst for exactly the highest-parcel-count owners the
+  query exists to surface. Rewritten as a subquery computing only cheap aggregates
+  (`COUNT`/`SUM`/`MIN(id)`), narrowing to the winning 20 via `LIMIT`, *then* joining back
+  to `properties` for each winner's representative row — same correctness guarantee
+  (city/state paired from one consistent row), far less work.
+- **Entity-type classification had a real substring-matching bug**: unanchored
+  `ILIKE '%INC%'`/`'%CORP%'` matched "LINCOLN," "PRINCE," "VINCENT," "PROVINCE,"
+  "SCORPION" — any name containing those letters in sequence, not just actual
+  corporations. Fixed using Postgres's `\y` word-boundary regex metacharacter (matches
+  INC/CORP as a whole word, e.g. "SMITH INC."), with `INCORPORATED`/`CORPORATION` checked
+  separately since spelling them out means no boundary lands right after "INC"/"CORP".
+- **The per-county re-ingest endpoint (`POST /api/ingest/:county`) skipped the
+  market-metrics refresh** that the full-run path does — added by a different commit in
+  the same range, the two were never reconciled. Now both paths call
+  `computeAssessedValueMetrics` (and run `ANALYZE properties`, see next point).
+- **Added `ANALYZE properties`** at the end of a full ingestion run and after a per-county
+  re-ingest — nothing in the pipeline ran this before, so the query planner for the
+  bbox/value-sort/ownership-aggregate queries was relying entirely on autovacuum's default
+  threshold to catch up after large bulk loads.
+- Stale comment in `server.js` still said "6-county pull, ~355k parcels, 20-40 minutes" —
+  updated to reflect the actual current scale (56 counties, ~920k parcels, 1-2+ hours).
+
+**Not fixed, deliberately left as a known tradeoff:** the ownership-summary fetch still
+runs unconditionally on every page load, including the expensive unscoped statewide query
+when no county is selected (the app's default state). The query itself is now
+substantially cheaper (previous point), which mitigates the practical impact, but there's
+still no guard comparable to `properties.js`'s "county or bbox required" check. Worth
+revisiting (e.g. requiring an explicit action to run the statewide version) if it's ever
+observed to actually be slow rather than just theoretically expensive.
+
 ---
 
 ## Notes & Assumptions

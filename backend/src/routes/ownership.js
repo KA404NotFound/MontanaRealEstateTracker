@@ -18,25 +18,32 @@ router.get("/summary", async (req, res, next) => {
     const countyFilter = county ? "AND county = $1" : "";
     const params = county ? [county] : [];
 
+    // city/state must come from the same row — independent MAX(owner_city)/
+    // MAX(owner_state) can each pick from a *different* parcel's mailing address (an
+    // owner can have several on file), producing a city/state pair that never actually
+    // existed together. Rather than ARRAY_AGG-ing every row in every group just to read
+    // element [1] (cost scales with group size — worst for exactly the highest-parcel-
+    // count owners this query exists to surface), the subquery only computes cheap
+    // aggregates (COUNT/SUM/MIN) and narrows to the winning 20 via LIMIT *before* joining
+    // back to properties for the one representative row each needs.
     const topOwnersPromise = pool.query(
       `
-      SELECT
-        owner_name,
-        COUNT(*)::int AS parcel_count,
-        SUM(total_value)::bigint AS total_assessed_value,
-        -- city/state must come from the same row — independent MAX(owner_city) /
-        -- MAX(owner_state) can each pick from a *different* parcel's mailing address
-        -- (an owner can have several on file), producing a city/state pair that never
-        -- actually existed together. ARRAY_AGG with the same ORDER BY for both keeps
-        -- them paired from a single consistent row.
-        (ARRAY_AGG(owner_city ORDER BY id))[1] AS owner_city,
-        (ARRAY_AGG(owner_state ORDER BY id))[1] AS owner_state
-      FROM properties
-      WHERE owner_name IS NOT NULL ${countyFilter}
-      GROUP BY owner_name
-      HAVING COUNT(*) > 1
-      ORDER BY parcel_count DESC
-      LIMIT ${TOP_OWNERS_LIMIT}
+      SELECT o.owner_name, o.parcel_count, o.total_assessed_value, p.owner_city, p.owner_state
+      FROM (
+        SELECT
+          owner_name,
+          COUNT(*)::int AS parcel_count,
+          SUM(total_value)::bigint AS total_assessed_value,
+          MIN(id) AS rep_id
+        FROM properties
+        WHERE owner_name IS NOT NULL ${countyFilter}
+        GROUP BY owner_name
+        HAVING COUNT(*) > 1
+        ORDER BY parcel_count DESC
+        LIMIT ${TOP_OWNERS_LIMIT}
+      ) o
+      JOIN properties p ON p.id = o.rep_id
+      ORDER BY o.parcel_count DESC
       `,
       params
     );
@@ -68,7 +75,14 @@ router.get("/summary", async (req, res, next) => {
             OR owner_name ILIKE '% COUNTY%' OR owner_name ILIKE 'CITY OF%' THEN 'Government/Tribal'
           WHEN owner_name ILIKE '%LLC%' THEN 'LLC'
           WHEN owner_name ILIKE '%TRUST%' THEN 'Trust'
-          WHEN owner_name ILIKE '%INC%' OR owner_name ILIKE '%CORP%' THEN 'Corporation'
+          -- Unanchored '%INC%'/'%CORP%' substring matching misclassifies real names —
+          -- "LINCOLN", "PRINCE", "VINCENT", "PROVINCE" all contain "INC"; "SCORPION"
+          -- contains "CORP". \y is Postgres's word-boundary regex metacharacter, so this
+          -- only matches INC/CORP as a whole word (still matches "SMITH INC.", the period
+          -- counts as a boundary) — with INCORPORATED/CORPORATION checked separately
+          -- since spelling them out means no word boundary lands after "INC"/"CORP".
+          WHEN owner_name ~* '\\yINC\\y' OR owner_name ~* 'INCORPORATED'
+            OR owner_name ~* '\\yCORP\\y' OR owner_name ~* 'CORPORATION' THEN 'Corporation'
           WHEN owner_name ILIKE '%LLP%' OR owner_name ILIKE '% LP' OR owner_name ILIKE '%PARTNERSHIP%' THEN 'Partnership'
           WHEN owner_name ILIKE '%ESTATE OF%' THEN 'Estate'
           ELSE 'Individual/Other'

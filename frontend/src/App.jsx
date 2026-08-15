@@ -102,13 +102,21 @@ export default function App() {
 
   // Ownership analysis works statewide too (unlike market metrics, which has no
   // meaningful "trend" without a specific county) — scoped to selectedCounty when set,
-  // otherwise the whole state.
+  // otherwise the whole state. Same stale-response concern as the properties fetch:
+  // switching counties quickly could let an older response land after a newer one.
   useEffect(() => {
+    const controller = new AbortController();
     setLoadingOwnership(true);
-    getOwnershipSummary(selectedCounty)
+    getOwnershipSummary(selectedCounty, controller.signal)
       .then(setOwnershipSummary)
-      .catch(() => setOwnershipSummary(null))
-      .finally(() => setLoadingOwnership(false));
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setOwnershipSummary(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingOwnership(false);
+      });
+    return () => controller.abort();
   }, [selectedCounty]);
 
   // Same stale-response concern as the properties fetch — clicking through several

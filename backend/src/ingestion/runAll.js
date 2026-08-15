@@ -112,6 +112,18 @@ export async function ingestAllCounties(pool, opts = {}) {
     }
   }
 
+  // Refresh planner statistics after a bulk load — nothing in this pipeline runs ANALYZE
+  // otherwise, and the query planner's bbox/value-sort/ownership-aggregate query plans
+  // (properties.js, ownership.js) all depend on statistics that are accurate relative to
+  // the table's actual current size and distribution, not whatever autovacuum's default
+  // 10%-of-rows-changed threshold happened to catch.
+  try {
+    await pool.query("ANALYZE properties");
+    log("Ran ANALYZE properties to refresh planner statistics.");
+  } catch (err) {
+    log(`Failed to ANALYZE properties: ${describeError(err)}`);
+  }
+
   // Refresh market_metrics from whatever's now in `properties` — cheap (a couple of
   // aggregate queries), so it's fine to just always do this at the end of a run rather
   // than tracking which counties actually changed.

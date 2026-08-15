@@ -6,6 +6,7 @@ import { runMigrations } from "./db/migrate.js";
 import { describeError } from "./lib/describeError.js";
 import { ingestAllCounties, TARGET_COUNTIES } from "./ingestion/runAll.js";
 import { loadCountyToDb } from "./ingestion/loadToDb.js";
+import { computeAssessedValueMetrics } from "./ingestion/computeMarketMetrics.js";
 import countiesRouter from "./routes/counties.js";
 import propertiesRouter from "./routes/properties.js";
 import marketMetricsRouter from "./routes/marketMetrics.js";
@@ -33,15 +34,15 @@ app.use("/api/ownership", ownershipRouter);
 
 let ingestionInProgress = false;
 
-// Full re-ingestion is expensive (20-40+ min, hammers both the Cadastral API and the DB),
-// so unlike the read-only endpoints, this one requires a shared-secret token rather than
-// being open like the rest of the no-auth v1 API. Set INGEST_TOKEN in the environment to
-// enable it; leaving it unset disables the endpoint entirely (fails closed).
+// Full re-ingestion is expensive (all 56 counties, ~920k parcels — realistically 1-2+
+// hours, not minutes), so unlike the read-only endpoints, this one requires a
+// shared-secret token rather than being open like the rest of the no-auth v1 API. Set
+// INGEST_TOKEN in the environment to enable it; leaving it unset disables the endpoint
+// entirely (fails closed).
 const INGEST_TOKEN = process.env.INGEST_TOKEN;
 
-// POST /api/ingest — manually (re)trigger a full ingestion run. Fire-and-forget: a full
-// 6-county pull is ~355k parcels and can take 20-40+ minutes, so this responds
-// immediately and logs progress to stdout (visible in `docker logs` / Portainer).
+// POST /api/ingest — manually (re)trigger a full ingestion run. Fire-and-forget: this
+// responds immediately and logs progress to stdout (visible in `docker logs` / Portainer).
 app.post("/api/ingest", (req, res) => {
   if (!INGEST_TOKEN) {
     return res.status(503).json({ error: "ingest endpoint disabled — set INGEST_TOKEN to enable" });
@@ -86,9 +87,14 @@ app.post("/api/ingest/:county", (req, res) => {
   ingestionInProgress = true;
   res.json({ status: "started", county });
   loadCountyToDb(pool, county, { log: console.log })
-    .then(({ loaded, failed }) =>
-      console.log(`${county} County re-ingest complete: ${loaded} upserted${failed ? `, ${failed} skipped` : ""}.`)
-    )
+    .then(async ({ loaded, failed }) => {
+      console.log(`${county} County re-ingest complete: ${loaded} upserted${failed ? `, ${failed} skipped` : ""}.`);
+      // ingestAllCounties() (the full-run path) refreshes planner stats + market_metrics
+      // at the end — this targeted path skipped both, leaving stale query-plan stats and
+      // metrics for this county until the next monthly cron. Keep the paths consistent.
+      await pool.query("ANALYZE properties");
+      await computeAssessedValueMetrics(pool, { log: console.log });
+    })
     .catch((err) => console.error(`${county} County re-ingest failed:`, err))
     .finally(() => {
       ingestionInProgress = false;
