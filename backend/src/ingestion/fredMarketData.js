@@ -97,8 +97,8 @@ const METRICS = [
 // series is classified "Copyrighted: Citation Required" — not "Pre-approval Required",
 // so usage is fine, but citing both the original data owner (Realtor.com) and the
 // redistributing platform (FRED) is a real requirement here, not just good practice.
-// This label is stored in `source` and rendered directly in the dashboard's Assessed
-// Value Trends table (frontend/src/components/MarketMetrics.jsx), so the citation is
+// This label is stored in `source` and rendered directly in the dashboard's Market
+// Trends table (frontend/src/components/MarketMetrics.jsx), so the citation is
 // actually visible wherever this data appears — not just present in a DB column no one
 // reads.
 const SOURCE_LABEL = "Realtor.com, via FRED (Federal Reserve Bank of St. Louis, fred.stlouisfed.org)";

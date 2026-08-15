@@ -54,14 +54,18 @@ CREATE INDEX IF NOT EXISTS idx_properties_geom ON properties USING GIST (geom);
 -- a query isn't narrowed much by county/bbox (e.g. "All Counties" zoomed out statewide).
 CREATE INDEX IF NOT EXISTS idx_properties_total_value ON properties (total_value DESC NULLS LAST);
 
--- Aggregate market trend data — populated automatically from assessed values already
--- ingested (see backend/src/ingestion/computeMarketMetrics.js), not a real MLS feed.
+-- Aggregate market trend data. Two kinds of rows, distinguished by `source`: a
+-- self-computed median/avg ASSESSED value snapshot (every county, always available —
+-- see backend/src/ingestion/computeMarketMetrics.js) and, where a FRED series exists
+-- (populous counties only), real median LISTING price/active listings/days on market
+-- via FRED (see backend/src/ingestion/fredMarketData.js, added in migration 002 — this
+-- table's shape predates that, hence the later ALTER to widen its unique constraint).
 CREATE TABLE IF NOT EXISTS market_metrics (
   id                    SERIAL PRIMARY KEY,
   county                VARCHAR(50) NOT NULL,
   period_date           DATE NOT NULL,
   period_type           VARCHAR(20) NOT NULL, -- monthly/quarterly/annual
-  source                VARCHAR(150),          -- e.g. "NMAR Monthly Report"
+  source                VARCHAR(150),          -- e.g. "Computed from Cadastral assessed values" or "Realtor.com, via FRED (Federal Reserve Bank of St. Louis, fred.stlouisfed.org)"
   median_price          DECIMAL(15, 2),
   avg_price             DECIMAL(15, 2),
   active_listings       INTEGER,
