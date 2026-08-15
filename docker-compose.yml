@@ -48,6 +48,11 @@ services:
       # Optional: set to enable POST /api/ingest (manual re-ingestion trigger). Left unset,
       # that endpoint is disabled entirely rather than open with no auth.
       INGEST_TOKEN: ${INGEST_TOKEN:-}
+      # Optional: free key from fred.stlouisfed.org/docs/api/api_key.html — enables real
+      # median-listing-price/inventory/DOM data per county (populous counties only) from
+      # FRED, alongside the always-available self-computed assessed-value metrics. Left
+      # unset, FRED ingestion is skipped entirely (logged, not an error).
+      FRED_API_KEY: ${FRED_API_KEY:-}
     # Not published to the host — `frontend`'s nginx already reverse-proxies /api/* to this
     # service over the compose network (`backend:3000`), so a separate host port is
     # redundant exposure. Temporarily uncomment `ports: ["3000:3000"]` for direct debugging.

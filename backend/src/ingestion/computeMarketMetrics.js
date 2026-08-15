@@ -50,7 +50,7 @@ export async function computeAssessedValueMetrics(pool, opts = {}) {
       `
       INSERT INTO market_metrics (county, period_date, period_type, source, median_price, avg_price, notes)
       VALUES ($1, $2, 'monthly', $3, $4, $5, $6)
-      ON CONFLICT (county, period_date, period_type)
+      ON CONFLICT (county, period_date, period_type, source)
       DO UPDATE SET
         median_price = EXCLUDED.median_price,
         avg_price = EXCLUDED.avg_price,

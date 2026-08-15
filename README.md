@@ -92,9 +92,12 @@ in production, so the frontend code doesn't need to know which mode it's running
 - Property detail panel (owner, mailing address, assessed value breakdown, acreage, legal
   description) on click
 - CSV export of the current filtered view (up to 50,000 rows)
-- Assessed Value Trends panel per county — median/average assessed value, computed
-  automatically from ingested parcel data (not a real sale-price/MLS feed — see Phase 1
-  Findings and Phase 4 Week 3 in the plan doc for why)
+- Assessed Value Trends panel per county — two kinds of rows can appear: a self-computed
+  assessed-value snapshot (every county, always available, computed from ingested parcel
+  data — not a sale price) and, where a FRED series exists (populous counties only —
+  optional, needs `FRED_API_KEY`), real median-listing-price/active-listings/days-on-market
+  data from Realtor.com via FRED. Neither is a sale price — see Phase 1 Findings and Phase
+  4 Week 3 in the plan doc for why
 - Ownership Insights (per-county or statewide): top multi-parcel owners, Montana-vs-out-of-
   state residency breakdown, and an LLC/Trust/Corporation/Partnership/Individual breakdown —
   all inferred from owner-name/address text patterns already in the data, not an
@@ -121,6 +124,7 @@ reuses `backend`'s DB credentials rather than a dedicated read-only role).
 | `npm run verify` | Compares each county's actual row count against a live re-count from the Cadastral API — the way to check ingestion actually completed cleanly |
 | `npm run compute-metrics` | Recomputes the Assessed Value Trends data immediately, without waiting for (or triggering) a full re-ingestion |
 | `npm run ingest:cadastral -- Flathead` | Fetches one county's parcels and prints a sample, without touching the database — useful for testing the API client in isolation |
+| `npm run ingest:fred` | Pulls real listing-price/inventory/DOM data per county from FRED immediately (requires `FRED_API_KEY`), without waiting for a full ingestion run |
 
 ## Next steps
 

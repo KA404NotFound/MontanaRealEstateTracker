@@ -252,6 +252,42 @@ CREATE TABLE watchlist (
 
 **Deliverable:** `market_metrics` auto-populated for all 56 counties — done, with a materially different (and more honest, given what's actually available) shape than originally scoped.
 
+### Addendum: real listing data via FRED (2026-08-15)
+
+The Week 3 decision above declined per-county listing data specifically because the only
+route to it (at the time) was a human re-reading a different PDF/dashboard per board every
+month. That's still true of local realtor boards — but FRED (the Federal Reserve's public
+data platform) turns out to republish Realtor.com's "Housing Inventory Core Metrics" as
+clean, documented, per-county API series (e.g. `MEDLISPRI30029` = median listing price,
+Flathead County) — a genuinely different category: free, structured, and fully
+automatable, the same shape as the Cadastral ingestion itself.
+
+- **What it adds:** `backend/src/ingestion/fredMarketData.js` pulls median *listing*
+  price, active listing count, and median days on market per county, as a second kind of
+  row in `market_metrics` alongside (not replacing) the self-computed assessed-value
+  snapshot — distinguished by `source`. Optional: no-ops entirely if `FRED_API_KEY` isn't
+  set.
+- **Coverage is inherently partial, verified directly against the live API, not assumed:**
+  Flathead, Gallatin, Missoula, Cascade, Yellowstone, and Lewis and Clark had real data;
+  the other 50 counties correctly returned a clean "series does not exist" — the same
+  ~9-populous-county pattern the original board research found, for the same underlying
+  reason (not enough listing volume to be meaningful). Expected, not a bug.
+- **Compliance, checked directly rather than assumed** (per an explicit reminder not to
+  breach FRED's ToS): confirmed the series is tagged `copyrighted: citation required` via
+  the live API (not `pre-approval required` — usable, but citation is a real, mandatory
+  requirement, not a nicety). `source` is set to a proper citation naming both Realtor.com
+  (original data owner) and FRED, and is rendered directly in the dashboard's Assessed
+  Value Trends table — not just stored in a DB column nothing displays. Rate limiting:
+  FRED's documented limit is 120 requests/minute per key; the ingestion module paces
+  requests at 600ms apart (~100/min), verified against the terms of use page rather than
+  guessed.
+- Montana county FIPS codes (needed to construct series IDs) cross-checked between
+  Wikipedia and the official FCC FIPS list — both agree exactly.
+- **Schema change:** `market_metrics`'s unique constraint widened from `(county,
+  period_date, period_type)` to include `source`, so the self-computed and FRED-sourced
+  rows for the same county/month don't overwrite each other
+  (`backend/db/migrations/002_market_metrics_multi_source.sql`).
+
 ---
 
 ### Week 4-5: Frontend Dashboard v1 ✅ Done (2026-08-14)

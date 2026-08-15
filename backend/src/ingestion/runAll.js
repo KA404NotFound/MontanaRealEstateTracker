@@ -1,69 +1,13 @@
 import { loadCountyToDb } from "./loadToDb.js";
 import { computeAssessedValueMetrics } from "./computeMarketMetrics.js";
+import { ingestFredMarketData } from "./fredMarketData.js";
 import { describeError } from "../lib/describeError.js";
+import { TARGET_COUNTIES } from "./targetCounties.js";
 
-// All 56 Montana counties — the Cadastral layer covers the whole state, so this is
-// every CountyName value the live API actually returns (verified via a groupBy/count
-// query against the layer on 2026-08-14, not guessed/typed by hand — county naming has
-// gotchas, e.g. "Lewis and Clark" not "Lewis & Clark", which returns zero rows).
-export const TARGET_COUNTIES = [
-  "Beaverhead",
-  "Big Horn",
-  "Blaine",
-  "Broadwater",
-  "Carbon",
-  "Carter",
-  "Cascade",
-  "Chouteau",
-  "Custer",
-  "Daniels",
-  "Dawson",
-  "Deer Lodge",
-  "Fallon",
-  "Fergus",
-  "Flathead",
-  "Gallatin",
-  "Garfield",
-  "Glacier",
-  "Golden Valley",
-  "Granite",
-  "Hill",
-  "Jefferson",
-  "Judith Basin",
-  "Lake",
-  "Lewis and Clark",
-  "Liberty",
-  "Lincoln",
-  "Madison",
-  "McCone",
-  "Meagher",
-  "Mineral",
-  "Missoula",
-  "Musselshell",
-  "Park",
-  "Petroleum",
-  "Phillips",
-  "Pondera",
-  "Powder River",
-  "Powell",
-  "Prairie",
-  "Ravalli",
-  "Richland",
-  "Roosevelt",
-  "Rosebud",
-  "Sanders",
-  "Sheridan",
-  "Silver Bow",
-  "Stillwater",
-  "Sweet Grass",
-  "Teton",
-  "Toole",
-  "Treasure",
-  "Valley",
-  "Wheatland",
-  "Wibaux",
-  "Yellowstone",
-];
+// Re-exported for existing callers (server.js, routes/counties.js, verify.js) — the
+// canonical definition now lives in targetCounties.js so fredMarketData.js can import it
+// without a circular dependency on this module.
+export { TARGET_COUNTIES };
 
 /**
  * Ingests target counties sequentially (one at a time, not in parallel — the Cadastral
@@ -131,6 +75,13 @@ export async function ingestAllCounties(pool, opts = {}) {
     await computeAssessedValueMetrics(pool, { log });
   } catch (err) {
     log(`Failed to compute assessed-value market metrics: ${describeError(err)}`);
+  }
+
+  // No-ops (logs and returns) if FRED_API_KEY isn't set — safe to always call.
+  try {
+    await ingestFredMarketData(pool, { log });
+  } catch (err) {
+    log(`Failed to ingest FRED market data: ${describeError(err)}`);
   }
 
   log(`Ingestion run complete: ${JSON.stringify(results)}`);
