@@ -403,6 +403,24 @@ body {
   max-width: 260px;
 }
 
+.app-footer {
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--panel-border);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.app-footer a {
+  color: var(--text-dim);
+  text-decoration: underline;
+}
+
+.app-footer a:hover {
+  color: var(--text);
+}
+
 @media (max-width: 900px) {
   .content-row {
     flex-direction: column;

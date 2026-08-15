@@ -251,6 +251,20 @@ export default function App() {
         summary={ownershipSummary}
         loading={loadingOwnership}
       />
+
+      <footer className="app-footer">
+        <p>
+          Parcel, ownership, and assessed-value data: Montana State Library &amp;
+          Department of Revenue (Ravalli, Silver Bow, Missoula, Flathead, and Yellowstone
+          counties maintain their own parcel data, integrated by the State Library).
+          Listing price/inventory data, where shown: Realtor.com, via FRED (Federal
+          Reserve Bank of St. Louis). Map tiles: &copy;{' '}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+            OpenStreetMap
+          </a>{' '}
+          contributors.
+        </p>
+      </footer>
     </div>
   );
 }
