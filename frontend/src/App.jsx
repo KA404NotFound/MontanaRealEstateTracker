@@ -30,12 +30,12 @@ export default function App() {
   const [marketMetrics, setMarketMetrics] = useState([]);
   const [error, setError] = useState(null);
 
-  // Initial county list.
+  // Initial county list. Default selection stays null ("All Counties") — don't
+  // auto-select the alphabetically-first county.
   useEffect(() => {
     getCounties()
       .then((data) => {
         setCounties(data);
-        if (data.length > 0) setSelectedCounty((prev) => prev ?? data[0].county);
       })
       .catch((err) => setError(err.message));
   }, []);
