@@ -3,6 +3,7 @@
 // Montana_Real_Estate_Tracker_Plan.md for why this replaced per-county scrapers.
 
 import { pathToFileURL } from "node:url";
+import { describeError } from "../lib/describeError.js";
 
 const CADASTRAL_LAYER_URL =
   "https://gisservice.mt.gov/arcgis/rest/services/msdi_cadastral_map_v1/MapServer/1/query";
@@ -17,7 +18,7 @@ function sleep(ms) {
 
 // A full 6-county run makes 150+ sequential requests to a single government GIS server
 // over 20-40 minutes — a single timeout/502 shouldn't be fatal to the whole run.
-async function fetchWithRetry(url) {
+async function fetchWithRetry(url, log = () => {}) {
   let lastErr;
   for (let attempt = 1; attempt <= MAX_FETCH_RETRIES; attempt++) {
     try {
@@ -29,6 +30,7 @@ async function fetchWithRetry(url) {
     } catch (err) {
       lastErr = err;
       if (attempt < MAX_FETCH_RETRIES) {
+        log(`Cadastral API request failed (attempt ${attempt}/${MAX_FETCH_RETRIES}), retrying: ${describeError(err)}`);
         await sleep(FETCH_RETRY_BASE_DELAY_MS * attempt);
       }
     }
@@ -74,11 +76,11 @@ const OUT_FIELDS = [
  * pages via `onPage` instead — avoids holding the whole county in memory at once.
  *
  * @param {string} countyName - e.g. "Flathead" (must match CountyName field exactly)
- * @param {{ includeGeometry?: boolean, accumulate?: boolean, onPage?: (page: object[], total: number) => void | Promise<void> }} [opts]
+ * @param {{ includeGeometry?: boolean, accumulate?: boolean, onPage?: (page: object[], total: number) => void | Promise<void>, log?: (msg: string) => void }} [opts]
  * @returns {Promise<object[] | number>} array of GeoJSON-style features (accumulate: true), or total count (accumulate: false)
  */
 export async function fetchCountyParcels(countyName, opts = {}) {
-  const { includeGeometry = true, accumulate = true, onPage } = opts;
+  const { includeGeometry = true, accumulate = true, onPage, log = () => {} } = opts;
   const features = accumulate ? [] : null;
   let total = 0;
   let offset = 0;
@@ -94,7 +96,7 @@ export async function fetchCountyParcels(countyName, opts = {}) {
       resultRecordCount: String(MAX_RECORDS_PER_QUERY),
     });
 
-    const res = await fetchWithRetry(`${CADASTRAL_LAYER_URL}?${params.toString()}`);
+    const res = await fetchWithRetry(`${CADASTRAL_LAYER_URL}?${params.toString()}`, log);
     const body = await res.json();
     if (body.error) {
       throw new Error(`Cadastral query error: ${JSON.stringify(body.error)}`);
@@ -119,6 +121,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
 
   const features = await fetchCountyParcels(county, {
     onPage: (page, total) => console.log(`  fetched page of ${page.length} (running total: ${total})`),
+    log: console.log,
   });
 
   console.log(`Done: ${features.length} parcels for ${county} County.`);

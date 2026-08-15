@@ -1,4 +1,5 @@
 import { loadCountyToDb } from "./loadToDb.js";
+import { describeError } from "../lib/describeError.js";
 
 // Must match CountyName exactly as stored in the Cadastral layer — verified against the
 // live API on 2026-08-14 (note: "Lewis and Clark", not "Lewis & Clark" — the latter
@@ -45,9 +46,18 @@ export async function ingestAllCounties(pool, opts = {}) {
       continue;
     }
     log(`Starting ingestion for ${county} County...`);
-    const { loaded, failed } = await loadCountyToDb(pool, county, { log });
-    results[county] = { loaded, failed };
-    log(`Finished ${county} County: ${loaded} parcels upserted${failed ? `, ${failed} skipped` : ""}.`);
+    try {
+      const { loaded, failed } = await loadCountyToDb(pool, county, { log });
+      results[county] = { loaded, failed };
+      log(`Finished ${county} County: ${loaded} parcels upserted${failed ? `, ${failed} skipped` : ""}.`);
+    } catch (err) {
+      // DB-write faults are already isolated per-row inside loadCountyToDb — this catches
+      // the other failure class: the Cadastral API fetch itself giving up (exhausted
+      // retries, a non-2xx it won't recover from). Without this, one county's API outage
+      // would abort every county after it in TARGET_COUNTIES for this run.
+      results[county] = { loaded: 0, failed: 0, error: describeError(err) };
+      log(`${county} County ingestion failed — skipping to next county: ${describeError(err)}`);
+    }
   }
 
   log(`Ingestion run complete: ${JSON.stringify(results)}`);

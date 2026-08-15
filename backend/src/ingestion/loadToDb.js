@@ -180,6 +180,7 @@ export async function loadCountyToDb(pool, countyName, opts = {}) {
 
   await fetchCountyParcels(countyName, {
     accumulate: false,
+    log,
     onPage: async (page) => {
       const rows = page.map(featureToRow);
       for (const batch of chunk(rows, DB_BATCH_SIZE)) {

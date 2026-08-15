@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import cron from "node-cron";
 import { pool } from "./db/pool.js";
+import { describeError } from "./lib/describeError.js";
 import { ingestAllCounties, TARGET_COUNTIES } from "./ingestion/runAll.js";
 import countiesRouter from "./routes/counties.js";
 import propertiesRouter from "./routes/properties.js";
@@ -16,7 +17,9 @@ app.get("/api/health", async (req, res) => {
     await pool.query("SELECT 1");
     res.json({ status: "ok" });
   } catch (err) {
-    res.status(503).json({ status: "db unavailable", error: err.message });
+    // Plain err.message is blank for the AggregateError a failed pg connection throws by
+    // default (see lib/describeError.js) — exactly the case this endpoint exists to report.
+    res.status(503).json({ status: "db unavailable", error: describeError(err) });
   }
 });
 
