@@ -276,6 +276,13 @@ body {
   border-bottom: 1px solid #1f2a33;
 }
 
+.market-metrics-note {
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
 @media (max-width: 900px) {
   .content-row {
     flex-direction: column;

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "ingest:cadastral": "node src/ingestion/cadastral.js",
-    "verify": "node src/ingestion/verify.js"
+    "verify": "node src/ingestion/verify.js",
+    "compute-metrics": "node src/ingestion/computeMarketMetrics.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

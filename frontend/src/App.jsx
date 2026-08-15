@@ -170,7 +170,7 @@ export default function App() {
 
       {selectedCounty && (
         <section className="market-metrics-section">
-          <h2>Market Trends — {selectedCounty}</h2>
+          <h2>Assessed Value Trends — {selectedCounty}</h2>
           <MarketMetrics county={selectedCounty} metrics={marketMetrics} />
         </section>
       )}

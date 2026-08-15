@@ -1,4 +1,5 @@
 import { loadCountyToDb } from "./loadToDb.js";
+import { computeAssessedValueMetrics } from "./computeMarketMetrics.js";
 import { describeError } from "../lib/describeError.js";
 
 // All 56 Montana counties — the Cadastral layer covers the whole state, so this is
@@ -109,6 +110,15 @@ export async function ingestAllCounties(pool, opts = {}) {
       results[county] = { loaded: 0, failed: 0, error: describeError(err) };
       log(`${county} County ingestion failed — skipping to next county: ${describeError(err)}`);
     }
+  }
+
+  // Refresh market_metrics from whatever's now in `properties` — cheap (a couple of
+  // aggregate queries), so it's fine to just always do this at the end of a run rather
+  // than tracking which counties actually changed.
+  try {
+    await computeAssessedValueMetrics(pool, { log });
+  } catch (err) {
+    log(`Failed to compute assessed-value market metrics: ${describeError(err)}`);
   }
 
   log(`Ingestion run complete: ${JSON.stringify(results)}`);

@@ -245,12 +245,12 @@ CREATE TABLE watchlist (
 
 ---
 
-### Week 3: Aggregate Market Metrics Ingestion — Not started
-- [ ] Identify the realtor association/board covering each of the 6 counties (406MLS region vs. others — e.g. Billings/Yellowstone likely has a separate board; confirm during this week)
-- [ ] For each, find their published market report cadence/format (PDF, blog post, etc.)
-- [ ] Build a lightweight manual-or-semi-automated pipeline to log median price / DOM / inventory into `market_metrics` per report cycle (this is inherently lower-frequency and less structured than the Cadastral feed — treat as best-effort, not real-time)
+### Week 3: Aggregate Market Metrics Ingestion ✅ Done, revised scope (2026-08-15)
+- [x] Researched Montana's realtor board/MLS landscape: no free, structured, ToS-clean feed covers all 56 counties — coverage is a patchwork of ~9 populous-county boards each publishing their own monthly PDF/dashboard (different formats, no API, no archive), everything else has no board at all. Real median-*sale*-price/DOM/listing data would mean a human re-reading PDFs every month indefinitely, for a minority of counties.
+- [x] **Decision:** skip the manual-report route. Instead, `market_metrics` is populated automatically from data we already have — median/average **assessed** value per county, computed directly from `properties` (`backend/src/ingestion/computeMarketMetrics.js`), refreshed at the end of every ingestion run (startup gap-fill, monthly cron, or manual trigger). All 56 counties, zero ongoing maintenance, always as fresh as the last ingestion — the honest tradeoff being assessed value (what DOR has on record) rather than a real transaction/listing price, which is true of every free county-complete source that exists for Montana (Census ACS, MT DOR's own report), not a shortcut unique to this approach.
+- [x] Frontend updated to represent this honestly — section relabeled "Assessed Value Trends," listing-specific columns (active/new listings, closed sales, DOM) removed rather than left permanently blank, explicit "not a sale price" note added to the UI itself, not just code comments
 
-**Deliverable:** `market_metrics` populated with at least one trend series per county. The table and API endpoint (`GET /api/market-metrics/:county`) already exist and the frontend already renders this section — it just has no data yet, so it shows an empty state.
+**Deliverable:** `market_metrics` auto-populated for all 56 counties — done, with a materially different (and more honest, given what's actually available) shape than originally scoped.
 
 ---
 
