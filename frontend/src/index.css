@@ -283,6 +283,96 @@ body {
   color: var(--text-dim);
 }
 
+.ownership-insights {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.ownership-insights h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.ownership-insights h3 {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.ownership-note {
+  margin-top: 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.ownership-breakdowns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.breakdown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.breakdown-row {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+
+.breakdown-label {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breakdown-bar-track {
+  background: #1c252d;
+  border-radius: 4px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.breakdown-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.breakdown-value {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.ownership-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ownership-table th,
+.ownership-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #1f2a33;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
 @media (max-width: 900px) {
   .content-row {
     flex-direction: column;
@@ -296,5 +386,8 @@ body {
   .detail-panel {
     flex: 0 0 auto;
     width: 100%;
+  }
+  .ownership-breakdowns {
+    grid-template-columns: 1fr;
   }
 }

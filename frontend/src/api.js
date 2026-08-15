@@ -34,3 +34,8 @@ export function getProperty(id) {
 export function getMarketMetrics(county) {
   return request(`/market-metrics/${encodeURIComponent(county)}`);
 }
+
+export function getOwnershipSummary(county) {
+  const qs = county ? `?county=${encodeURIComponent(county)}` : '';
+  return request(`/ownership/summary${qs}`);
+}

@@ -281,7 +281,7 @@ CREATE TABLE watchlist (
 ---
 
 ### Week 6+: Iteration & Advanced Features
-- [ ] **Ownership analysis** — Identify multi-parcel owners, out-of-state owners, corporate/LLC ownership patterns (all derivable from `OwnerName`/`OwnerAddress` in the Cadastral data already in hand)
+- [x] **Ownership analysis** ✅ Done (2026-08-15) — `GET /api/ownership/summary?county=` (`backend/src/routes/ownership.js`) returns top multi-parcel owners, an out-of-state-vs-Montana residency breakdown, and an LLC/Trust/Corp/Partnership/Government/Individual breakdown, all derived via text-pattern matching on `owner_name`/`owner_state` — no new data needed, works per-county or statewide. New `OwnershipInsights` frontend section, always visible (unlike Assessed Value Trends, this is meaningful even under "All Counties"). Explicitly labeled as heuristic, not an authoritative classification, since the source data has no structured owner-type field.
 - [ ] **Assessed-value heatmap** — Visualize `TotalValue`/acre by area
 - [ ] **Year-over-year assessment change tracking** — snapshot `TotalValue` each ingestion run, chart drift over time
 - [ ] **Export** — Download filtered results as CSV

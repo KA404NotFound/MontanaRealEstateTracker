@@ -8,6 +8,7 @@ import { loadCountyToDb } from "./ingestion/loadToDb.js";
 import countiesRouter from "./routes/counties.js";
 import propertiesRouter from "./routes/properties.js";
 import marketMetricsRouter from "./routes/marketMetrics.js";
+import ownershipRouter from "./routes/ownership.js";
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ app.get("/api/health", async (req, res) => {
 app.use("/api/counties", countiesRouter);
 app.use("/api/properties", propertiesRouter);
 app.use("/api/market-metrics", marketMetricsRouter);
+app.use("/api/ownership", ownershipRouter);
 
 let ingestionInProgress = false;
 

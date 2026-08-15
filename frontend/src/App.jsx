@@ -4,7 +4,8 @@ import PropertyMap from './components/PropertyMap.jsx';
 import PropertyTable from './components/PropertyTable.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import MarketMetrics from './components/MarketMetrics.jsx';
-import { getCounties, getProperties, getProperty, getMarketMetrics } from './api.js';
+import OwnershipInsights from './components/OwnershipInsights.jsx';
+import { getCounties, getProperties, getProperty, getMarketMetrics, getOwnershipSummary } from './api.js';
 import { formatNumber } from './format.js';
 
 // Approximate Montana state extent — used to fly the map out to a statewide view when
@@ -28,6 +29,8 @@ export default function App() {
   const [selectedDetail, setSelectedDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [marketMetrics, setMarketMetrics] = useState([]);
+  const [ownershipSummary, setOwnershipSummary] = useState(null);
+  const [loadingOwnership, setLoadingOwnership] = useState(false);
   const [error, setError] = useState(null);
 
   // Initial county list. Default selection stays null ("All Counties") — don't
@@ -74,6 +77,17 @@ export default function App() {
       return;
     }
     getMarketMetrics(selectedCounty).then(setMarketMetrics).catch(() => setMarketMetrics([]));
+  }, [selectedCounty]);
+
+  // Ownership analysis works statewide too (unlike market metrics, which has no
+  // meaningful "trend" without a specific county) — scoped to selectedCounty when set,
+  // otherwise the whole state.
+  useEffect(() => {
+    setLoadingOwnership(true);
+    getOwnershipSummary(selectedCounty)
+      .then(setOwnershipSummary)
+      .catch(() => setOwnershipSummary(null))
+      .finally(() => setLoadingOwnership(false));
   }, [selectedCounty]);
 
   const handleSelectProperty = useCallback((id) => {
@@ -174,6 +188,12 @@ export default function App() {
           <MarketMetrics county={selectedCounty} metrics={marketMetrics} />
         </section>
       )}
+
+      <OwnershipInsights
+        scopeLabel={selectedCounty || 'Statewide'}
+        summary={ownershipSummary}
+        loading={loadingOwnership}
+      />
     </div>
   );
 }
