@@ -11,8 +11,15 @@ export function getCounties() {
   return request('/counties');
 }
 
-export function getProperties({ county, q, propertyType, minValue, maxValue, page = 1 }) {
-  const params = new URLSearchParams({ county, page: String(page) });
+export function getProperties({ county, bounds, q, propertyType, minValue, maxValue, page = 1 }) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (county) params.set('county', county);
+  if (bounds) {
+    params.set('minLat', bounds.minLat);
+    params.set('minLng', bounds.minLng);
+    params.set('maxLat', bounds.maxLat);
+    params.set('maxLng', bounds.maxLng);
+  }
   if (q) params.set('q', q);
   if (propertyType) params.set('property_type', propertyType);
   if (minValue) params.set('min_value', minValue);

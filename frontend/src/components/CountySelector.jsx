@@ -1,19 +1,23 @@
 import { formatCurrency, formatNumber } from '../format.js';
 
 export default function CountySelector({ counties, selected, onSelect }) {
+  const selectedSummary = selected ? counties.find((c) => c.county === selected) : null;
+
   return (
     <div className="county-selector">
-      {counties.map((c) => (
-        <button
-          key={c.county}
-          className={`county-card ${selected === c.county ? 'active' : ''}`}
-          onClick={() => onSelect(c.county)}
-        >
-          <div className="county-card-name">{c.county}</div>
-          <div className="county-card-stat">{formatNumber(c.parcel_count)} parcels</div>
-          <div className="county-card-stat">{formatCurrency(c.total_assessed_value)} assessed</div>
-        </button>
-      ))}
+      <select className="county-select" value={selected ?? ''} onChange={(e) => onSelect(e.target.value || null)}>
+        <option value="">All Counties</option>
+        {counties.map((c) => (
+          <option key={c.county} value={c.county}>
+            {c.county}
+          </option>
+        ))}
+      </select>
+      {selectedSummary && (
+        <span className="county-summary">
+          {formatNumber(selectedSummary.parcel_count)} parcels · {formatCurrency(selectedSummary.total_assessed_value)} assessed
+        </span>
+      )}
     </div>
   );
 }

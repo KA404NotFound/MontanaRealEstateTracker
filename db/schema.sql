@@ -44,6 +44,9 @@ CREATE TABLE IF NOT EXISTS properties (
 CREATE INDEX IF NOT EXISTS idx_properties_county ON properties (county);
 CREATE INDEX IF NOT EXISTS idx_properties_owner_name ON properties (owner_name);
 CREATE INDEX IF NOT EXISTS idx_properties_geom ON properties USING GIST (geom);
+-- Supports "ORDER BY total_value DESC ... LIMIT" without a full sort, which matters once
+-- a query isn't narrowed much by county/bbox (e.g. "All Counties" zoomed out statewide).
+CREATE INDEX IF NOT EXISTS idx_properties_total_value ON properties (total_value DESC NULLS LAST);
 
 -- Aggregate market trend data, sourced from local realtor board / NMAR-style
 -- published reports (manually logged or lightly parsed — not real-time).

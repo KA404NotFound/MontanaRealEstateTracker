@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { formatCurrency } from '../format.js';
 
 const DEFAULT_CENTER = [46.8797, -110.3626]; // roughly the center of Montana
@@ -30,20 +30,32 @@ function ResizeInvalidator() {
   return null;
 }
 
-// Fits the map to the current result set. Only when the set itself changes (new
-// search/county/page) — `points` is memoized by the parent so this doesn't re-run on
-// every render (e.g. just clicking a marker).
-function FitToMarkers({ points }) {
+// Flies to `bounds` whenever it changes — driven by county selection (or "All"), not by
+// whatever properties happen to be loaded (that would be circular now that properties
+// are fetched *from* the viewport, not the other way around).
+function FlyToBounds({ bounds }) {
   const map = useMap();
 
   useEffect(() => {
-    if (points.length === 0) return;
-    if (points.length === 1) {
-      map.setView(points[0], 13);
-    } else {
-      map.fitBounds(points, { padding: [30, 30], maxZoom: 14 });
-    }
-  }, [points, map]);
+    if (!bounds) return;
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }, [bounds, map]);
+
+  return null;
+}
+
+// Reports the map's current viewport back to the parent — on every pan/zoom, and once
+// on initial mount — so property fetches can be scoped to what's actually visible
+// instead of a fixed value-sorted slice of the whole county/state.
+function BoundsWatcher({ onBoundsChange }) {
+  const map = useMapEvents({
+    moveend: () => onBoundsChange(map.getBounds()),
+  });
+
+  useEffect(() => {
+    onBoundsChange(map.getBounds());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- report once on mount only
+  }, []);
 
   return null;
 }
@@ -51,7 +63,7 @@ function FitToMarkers({ points }) {
 // Flies to the selected property specifically. Deliberately keyed only on `selectedId`
 // (not the properties list) so this fires on an actual click, not every time the result
 // set refreshes while a marker happens to still be selected — and zooms in tight (17)
-// rather than sharing the "fit whole result set" bounds FitToMarkers uses.
+// rather than sharing whatever bounds the current viewport happens to be at.
 function FlyToSelected({ properties, selectedId }) {
   const map = useMap();
 
@@ -66,9 +78,8 @@ function FlyToSelected({ properties, selectedId }) {
   return null;
 }
 
-export default function PropertyMap({ properties, selectedId, onSelect }) {
+export default function PropertyMap({ properties, selectedId, onSelect, flyToBounds, onBoundsChange }) {
   const points = useMemo(() => properties.filter((p) => p.latitude && p.longitude), [properties]);
-  const fitPoints = useMemo(() => points.map((p) => [p.latitude, p.longitude]), [points]);
 
   return (
     <MapContainer center={DEFAULT_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
@@ -77,7 +88,8 @@ export default function PropertyMap({ properties, selectedId, onSelect }) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <ResizeInvalidator />
-      <FitToMarkers points={fitPoints} />
+      <FlyToBounds bounds={flyToBounds} />
+      <BoundsWatcher onBoundsChange={onBoundsChange} />
       <FlyToSelected properties={points} selectedId={selectedId} />
       {points.map((p) => (
         <CircleMarker

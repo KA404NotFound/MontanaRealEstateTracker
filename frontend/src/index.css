@@ -41,34 +41,23 @@ body {
 
 .county-selector {
   display: flex;
-  gap: 0.75rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.county-card {
-  flex: 0 0 auto;
-  background: var(--panel);
+.county-select {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 0.6rem 1rem;
+  background: var(--panel);
   color: var(--text);
-  cursor: pointer;
-  text-align: left;
-  min-width: 150px;
+  font-size: 0.9rem;
+  min-width: 220px;
 }
 
-.county-card.active {
-  border-color: var(--accent);
-  background: #1a2530;
-}
-
-.county-card-name {
-  font-weight: 600;
-}
-
-.county-card-stat {
-  font-size: 0.78rem;
+.county-summary {
+  font-size: 0.85rem;
   color: var(--text-dim);
 }
 

@@ -6,26 +6,47 @@ const router = Router();
 const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 200;
 
-// GET /api/properties?county=&q=&property_type=&min_value=&max_value=&page=&pageSize=
+// GET /api/properties?county=&minLat=&minLng=&maxLat=&maxLng=&q=&property_type=&min_value=&max_value=&page=&pageSize=
 //
-// `county` is required — with ~355k parcels across all 6 counties, an unfiltered scan
-// isn't something the map/table view is meant to support. Returns parcel centroids
-// (not full polygons) for map markers; fetch /api/properties/:id for full geometry.
+// At least one of `county` or a bounding box (all four of minLat/minLng/maxLat/maxLng)
+// is required — with ~920k parcels statewide, an unfiltered scan isn't something this
+// endpoint is meant to support. The bounding box is what scopes results to "what's
+// currently visible on the map" — without it, results are just the N highest-assessed
+// parcels in `county` regardless of location, which (especially once browsing without a
+// county filter) tends to surface a handful of the priciest properties in the whole area
+// rather than anything resembling what's actually in view.
+// Returns parcel centroids (not full polygons) for map markers; fetch
+// /api/properties/:id for full geometry.
 router.get("/", async (req, res, next) => {
   try {
     const { county, q, property_type: propertyType, min_value: minValue, max_value: maxValue } = req.query;
+    const { minLat, minLng, maxLat, maxLng } = req.query;
 
-    if (!county) {
-      return res.status(400).json({ error: "county query param is required" });
+    const bboxParts = [minLng, minLat, maxLng, maxLat].map(Number);
+    const hasBbox = [minLat, minLng, maxLat, maxLng].every((v) => v !== undefined && v !== "") && bboxParts.every((n) => Number.isFinite(n));
+
+    if (!county && !hasBbox) {
+      return res.status(400).json({ error: "county or a map bounding box (minLat/minLng/maxLat/maxLng) is required" });
     }
 
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize, 10) || DEFAULT_PAGE_SIZE));
     const offset = (page - 1) * pageSize;
 
-    const conditions = ["county = $1"];
-    const params = [county];
+    const conditions = [];
+    const params = [];
 
+    if (county) {
+      params.push(county);
+      conditions.push(`county = $${params.length}`);
+    }
+    if (hasBbox) {
+      const [bMinLng, bMinLat, bMaxLng, bMaxLat] = bboxParts;
+      params.push(bMinLng, bMinLat, bMaxLng, bMaxLat);
+      const n = params.length;
+      // `&&` is the bounding-box-overlap operator — index-accelerated by idx_properties_geom.
+      conditions.push(`geom && ST_MakeEnvelope($${n - 3}, $${n - 2}, $${n - 1}, $${n}, 4326)`);
+    }
     if (q) {
       params.push(`%${q}%`);
       conditions.push(`(owner_name ILIKE $${params.length} OR address_line1 ILIKE $${params.length} OR parcel_id ILIKE $${params.length})`);
