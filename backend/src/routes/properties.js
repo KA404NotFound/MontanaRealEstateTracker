@@ -1,0 +1,108 @@
+import { Router } from "express";
+import { pool } from "../db/pool.js";
+
+const router = Router();
+
+const MAX_PAGE_SIZE = 500;
+const DEFAULT_PAGE_SIZE = 200;
+
+// GET /api/properties?county=&q=&property_type=&min_value=&max_value=&page=&pageSize=
+//
+// `county` is required — with ~355k parcels across all 6 counties, an unfiltered scan
+// isn't something the map/table view is meant to support. Returns parcel centroids
+// (not full polygons) for map markers; fetch /api/properties/:id for full geometry.
+router.get("/", async (req, res, next) => {
+  try {
+    const { county, q, property_type: propertyType, min_value: minValue, max_value: maxValue } = req.query;
+
+    if (!county) {
+      return res.status(400).json({ error: "county query param is required" });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize, 10) || DEFAULT_PAGE_SIZE));
+    const offset = (page - 1) * pageSize;
+
+    const conditions = ["county = $1"];
+    const params = [county];
+
+    if (q) {
+      params.push(`%${q}%`);
+      conditions.push(`(owner_name ILIKE $${params.length} OR address_line1 ILIKE $${params.length} OR parcel_id ILIKE $${params.length})`);
+    }
+    if (propertyType) {
+      params.push(propertyType);
+      conditions.push(`property_type = $${params.length}`);
+    }
+    if (minValue) {
+      params.push(Number(minValue));
+      conditions.push(`total_value >= $${params.length}`);
+    }
+    if (maxValue) {
+      params.push(Number(maxValue));
+      conditions.push(`total_value <= $${params.length}`);
+    }
+
+    const where = conditions.join(" AND ");
+
+    const countPromise = pool.query(`SELECT COUNT(*)::int AS count FROM properties WHERE ${where}`, params);
+
+    params.push(pageSize, offset);
+    const rowsPromise = pool.query(
+      `
+      SELECT
+        id, parcel_id, county, owner_name, address_line1, city_state_zip,
+        property_type, total_acres, total_land_value, total_building_value, total_value, tax_year,
+        ST_Y(ST_Centroid(geom)) AS latitude,
+        ST_X(ST_Centroid(geom)) AS longitude
+      FROM properties
+      WHERE ${where}
+      ORDER BY total_value DESC NULLS LAST
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+      `,
+      params
+    );
+
+    const [{ rows: countRows }, { rows }] = await Promise.all([countPromise, rowsPromise]);
+
+    res.json({
+      page,
+      pageSize,
+      total: countRows[0].count,
+      results: rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/properties/:id — full detail including polygon geometry (GeoJSON).
+router.get("/:id", async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        id, parcel_id, county, owner_name, owner_address_1, owner_address_2, owner_address_3,
+        owner_city, owner_state, owner_zip, dba_name, care_of_taxpayer,
+        address_line1, address_line2, city_state_zip, property_type, prop_access,
+        total_acres, total_land_value, total_building_value, total_value, tax_year,
+        levy_district, township, range, section, subdivision,
+        last_ingested_at,
+        ST_AsGeoJSON(geom)::json AS geometry
+      FROM properties
+      WHERE id = $1
+      `,
+      [req.params.id]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: "property not found" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;

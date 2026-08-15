@@ -1,0 +1,294 @@
+:root {
+  --bg: #0f1418;
+  --panel: #161d24;
+  --panel-border: #26313b;
+  --text: #e6edf3;
+  --text-dim: #8b98a5;
+  --accent: #3b82f6;
+  --accent-active: #1d4ed8;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 1.5rem;
+  gap: 1rem;
+}
+
+.app-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.app-subtitle {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.county-selector {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.county-card {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  min-width: 150px;
+}
+
+.county-card.active {
+  border-color: var(--accent);
+  background: #1a2530;
+}
+
+.county-card-name {
+  font-weight: 600;
+}
+
+.county-card-stat {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.error-banner {
+  background: #3b1414;
+  border: 1px solid #7f1d1d;
+  color: #fca5a5;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.result-count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.main-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  min-height: 480px;
+}
+
+.table-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.property-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  overflow-y: auto;
+  display: block;
+  max-height: 520px;
+}
+
+.property-table thead,
+.property-table tbody {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.property-table th {
+  position: sticky;
+  top: 0;
+  background: #1c252d;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.property-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #1f2a33;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.property-table tr {
+  cursor: pointer;
+}
+
+.property-table tr:hover {
+  background: #1c252d;
+}
+
+.property-table tr.active {
+  background: #1a2f4d;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.6rem;
+  border-top: 1px solid var(--panel-border);
+  font-size: 0.85rem;
+}
+
+.pagination button {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.map-pane {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.empty-state {
+  padding: 2rem;
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.detail-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(420px, 100vw);
+  background: var(--panel);
+  border-left: 1px solid var(--panel-border);
+  padding: 1.25rem;
+  overflow-y: auto;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.detail-header h3 {
+  margin: 0;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.4rem 1rem;
+  font-size: 0.85rem;
+}
+
+.detail-grid dt {
+  color: var(--text-dim);
+}
+
+.detail-grid dd {
+  margin: 0;
+}
+
+.detail-note {
+  margin-top: 1.5rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  border-top: 1px solid var(--panel-border);
+  padding-top: 0.75rem;
+}
+
+.market-metrics-section {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.market-metrics-section h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.market-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.market-metrics-table th,
+.market-metrics-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #1f2a33;
+}
+
+@media (max-width: 900px) {
+  .main-layout {
+    grid-template-columns: 1fr;
+  }
+  .map-pane {
+    height: 360px;
+  }
+}

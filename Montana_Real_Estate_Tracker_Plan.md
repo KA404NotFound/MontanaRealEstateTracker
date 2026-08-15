@@ -224,53 +224,53 @@ CREATE TABLE watchlist (
 
 *(Revised 2026-08-14 for the Cadastral-API-first, aggregate-only strategy — see Phase 1 Findings above.)*
 
-### Week 1: Cadastral API Client + Schema
-- [ ] Set up Node.js project (Express, axios, node-cron)
-- [ ] Build a paginated client for `msdi_cadastral_map_v1/MapServer/1` (handle the 2,000-record/query cap via `resultOffset`)
-- [ ] Query Flathead County (`CountyName='Flathead'`), validate field mapping against the schema in Phase 3
-- [ ] Confirm the same client works unmodified against the other 5 target counties (it should — same endpoint, different `where` filter)
+### Week 1: Cadastral API Client + Schema ✅ Done (2026-08-14)
+- [x] Set up Node.js project (Express, node-cron — no axios needed, native `fetch` covers it)
+- [x] Build a paginated client for `msdi_cadastral_map_v1/MapServer/1` (handle the 2,000-record/query cap via `resultOffset`) — `backend/src/ingestion/cadastral.js`
+- [x] Query Flathead County (`CountyName='Flathead'`), validate field mapping against the schema in Phase 3
+- [x] Confirm the same client works unmodified against the other 5 target counties — verified exact `CountyName` spelling for all 6 (note: **"Lewis and Clark"**, not "Lewis & Clark" — the latter returns 0 rows)
 
-**Deliverable:** Working Cadastral API client returning clean JSON for all 6 counties
-
----
-
-### Week 2: Database Setup & Data Ingestion
-- [ ] Set up PostgreSQL locally and on hosting (Render or similar), enable PostGIS
-- [ ] Create schema from Phase 3 (trimmed to `properties`, `market_metrics`, `watchlist` — see note below)
-- [ ] Build insertion pipeline (validate → upsert on `parcel_id` → insert)
-- [ ] Store `Shape` geometry directly (Cadastral API returns polygons — no separate geocoding step needed for parcels that have geometry)
-- [ ] Set up automated monthly cron pull (matches the Cadastral data's own monthly update cadence — no need to poll more often)
-
-**Deliverable:** All 6 counties' parcel/ownership/assessed-value data in PostgreSQL, automated ingestion working
+**Deliverable:** Working Cadastral API client returning clean JSON for all 6 counties — done
 
 ---
 
-### Week 3: Aggregate Market Metrics Ingestion
+### Week 2: Database Setup & Data Ingestion ✅ Done (2026-08-14)
+- [x] Postgres+PostGIS via `docker-compose.yml` (`postgis/postgis:16-3.4`), deployed through Portainer as a Git-based stack
+- [x] Create schema from Phase 3 (trimmed to `properties`, `market_metrics`, `watchlist`) — `db/schema.sql`, auto-applied on first container start
+- [x] Build insertion pipeline (paginate API → upsert on `parcel_id` in batches of 500) — `backend/src/ingestion/loadToDb.js`
+- [x] Store `Shape` geometry directly via `ST_GeomFromGeoJSON` — no separate geocoding step needed
+- [x] Automated ingestion: full 6-county run on first backend boot if `properties` is empty, plus a monthly cron (`0 3 1 * *`, matching the Cadastral data's own update cadence) — `backend/src/server.js`
+
+**Deliverable:** All 6 counties' parcel/ownership/assessed-value data in PostgreSQL, automated ingestion working — done. (~355k parcels total across the 6 counties per live API counts: Flathead 83,857 / Yellowstone 83,645 / Missoula 60,689 / Gallatin 53,617 / Lewis and Clark 40,208 / Ravalli 33,216.)
+
+---
+
+### Week 3: Aggregate Market Metrics Ingestion — Not started
 - [ ] Identify the realtor association/board covering each of the 6 counties (406MLS region vs. others — e.g. Billings/Yellowstone likely has a separate board; confirm during this week)
 - [ ] For each, find their published market report cadence/format (PDF, blog post, etc.)
 - [ ] Build a lightweight manual-or-semi-automated pipeline to log median price / DOM / inventory into `market_metrics` per report cycle (this is inherently lower-frequency and less structured than the Cadastral feed — treat as best-effort, not real-time)
 
-**Deliverable:** `market_metrics` populated with at least one trend series per county
+**Deliverable:** `market_metrics` populated with at least one trend series per county. The table and API endpoint (`GET /api/market-metrics/:county`) already exist and the frontend already renders this section — it just has no data yet, so it shows an empty state.
 
 ---
 
-### Week 4-5: Frontend Dashboard v1
-- [ ] Set up React project (Vite)
-- [ ] Build REST API endpoints:
+### Week 4-5: Frontend Dashboard v1 ✅ Done (2026-08-14)
+- [x] Set up React project (Vite) — `frontend/`
+- [x] Build REST API endpoints:
   - `GET /api/counties` — list all counties with summary stats
-  - `GET /api/properties?county=&property_type=&owner=` — filtered parcel search
+  - `GET /api/properties?county=&q=&property_type=&min_value=&max_value=&page=` — filtered, paginated parcel search
   - `GET /api/properties/:id` — detailed property view (owner, assessed value, geometry)
-  - `GET /api/market-metrics/:county` — aggregate price/inventory trends
-- [ ] Dashboard layout:
-  - County selector (dropdown or tabs)
-  - Interactive parcel map (Leaflet/Mapbox, colored by assessed value or property type)
+  - `GET /api/market-metrics/:county` — aggregate price/inventory trends (empty until Week 3)
+- [x] Dashboard layout:
+  - County selector (cards with parcel count + total assessed value)
+  - Interactive parcel map (Leaflet, `CircleMarker`s at parcel centroids, colored by assessed value bucket)
   - Property search (by address, owner name, or parcel number)
   - Property detail view (full parcel info + assessed value breakdown)
   - Market summary panel (aggregate trend chart per county, sourced from Week 3 data)
-- [ ] Connect frontend to backend API
-- [ ] Deploy frontend to Vercel
+- [x] Connect frontend to backend API (nginx reverse-proxies `/api/*` to the `backend` container — same-origin from the browser, no CORS setup needed; `vite.config.js` dev proxy mirrors this locally)
+- [x] Deploy — **revised from the original Vercel plan**: this is now one `docker-compose.yml` (db + backend + frontend containers) deployed as a single Portainer stack pulled from this GitHub repo, per your call to make this "an all in one docker website" rather than split across Vercel + a separate DB host
 
-**Deliverable:** Live dashboard accessible at deployed URL — a parcel/ownership/assessed-value explorer with aggregate market context, not a listings site
+**Deliverable:** Live dashboard accessible at deployed URL — a parcel/ownership/assessed-value explorer with aggregate market context, not a listings site. **Status:** code complete and building clean (`npm run build` verified, Express routes smoke-tested locally); not yet deployed/verified end-to-end on the actual Portainer host.
 
 ---
 
@@ -384,6 +384,65 @@ By end of v1:
 4. Screenshot key pages
 
 Once Phase 1 is done, we can map out exact scraper logic.
+
+---
+
+## Phase 8: MCP Server Integration (planned 2026-08-14, not yet built)
+
+You asked to add "anything MCP related" to this project (fitting, given it lives under
+`Apps/MCP/`). The natural fit: expose the same parcel/ownership/assessed-value data the
+dashboard shows as **MCP tools**, so Claude (Desktop or Code) can query it directly in
+natural language — "which parcels in Ravalli County are owned by out-of-state LLCs",
+"total assessed value across Gallatin County vacant land" — without the dashboard's fixed
+UI in the way. This is genuinely low-effort on top of what already exists: the DB schema
+and query patterns are already built in `backend/src/routes/*.js`; an MCP server is mostly
+the same SQL behind a different protocol.
+
+### Architecture
+- New `mcp-server/` service — 4th container in `docker-compose.yml`, alongside `db`,
+  `backend`, `frontend`
+- Node.js + `@modelcontextprotocol/sdk`
+- Reads from the same Postgres DB as `backend` (same `PG*` env vars) — read-only queries
+  only, no write tools. Worth giving it its own Postgres role with `SELECT`-only grants
+  rather than reusing the backend's full-access user, since it's a new trust boundary
+  (whatever can call the MCP tools gets query access, even if scoped to read-only SQL)
+- Shares query logic with the REST API rather than duplicating it — pull the SQL out of
+  `backend/src/routes/*.js` into a small `backend/src/db/queries.js` (or a shared package)
+  that both the Express routes and the MCP tool handlers call
+
+### Proposed tools (mirrors the existing REST surface, read-only)
+- `list_counties` — per-county parcel count, total/avg assessed value (same as `GET /api/counties`)
+- `search_properties` — county (required), free-text owner/address/parcel-ID search, property type, value range, limit
+- `get_property` — full detail by parcel ID or internal ID, including legal description
+- `get_market_metrics` — aggregate trend data per county (once Phase 4 Week 3 populates it)
+- `find_multi_parcel_owners` — owners holding more than N parcels in a county (a query the
+  fixed dashboard UI doesn't expose, but is a one-line `GROUP BY owner_name HAVING COUNT(*) > N`
+  — the kind of ad hoc thing MCP access is actually good for beyond what the website offers)
+
+### Open decision: transport + exposure
+
+This is the one part that needs a call before building, because it changes the shape of the
+server:
+
+- **Local (stdio)** — the MCP server runs as a local process that Claude Desktop/Code spawns
+  directly (standard `claude_desktop_config.json` entry pointing at a local script or a
+  `docker exec`). Simplest, zero network exposure, but only usable from whichever machine
+  it's configured on — doesn't fit "deployed via Portainer" the way the web stack does,
+  since stdio can't cross a network boundary to a remote Docker host.
+- **Remote (Streamable HTTP)** — the MCP server listens on its own port (e.g. `3100`) like
+  the other 3 services, deployed in the same Portainer stack, reachable at
+  `http://<host>:3100/mcp` from any machine running Claude that's configured to add it as a
+  remote MCP server. Matches how the rest of this stack is being deployed, but means a query
+  surface over real (if public-record) ownership data is reachable over the network — at
+  minimum should stay on a private/VPN network rather than being port-forwarded publicly;
+  a shared-secret bearer token is a reasonable low-effort guard if broader reach is needed.
+
+**Not yet decided — will confirm with you before building this phase.**
+
+### Effort estimate
+Small — roughly 3-5 hours, mostly because the hard part (schema, query patterns, live data)
+already exists from Phases 1-2. Mostly wiring `@modelcontextprotocol/sdk` tool handlers to
+queries that already exist in `backend/src/routes/`.
 
 ---
 

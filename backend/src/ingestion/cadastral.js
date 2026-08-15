@@ -42,13 +42,18 @@ const OUT_FIELDS = [
  * Fetches every parcel for a given Montana county from the statewide Cadastral layer,
  * paginating past the server's 2,000-record-per-query cap.
  *
+ * By default accumulates and returns every feature (fine for ad-hoc/CLI use). For bulk
+ * loading (counties run 30k-85k+ parcels each), pass `accumulate: false` and consume
+ * pages via `onPage` instead — avoids holding the whole county in memory at once.
+ *
  * @param {string} countyName - e.g. "Flathead" (must match CountyName field exactly)
- * @param {{ includeGeometry?: boolean, onPage?: (count: number, total: number) => void }} [opts]
- * @returns {Promise<object[]>} array of GeoJSON-style features
+ * @param {{ includeGeometry?: boolean, accumulate?: boolean, onPage?: (page: object[], total: number) => void | Promise<void> }} [opts]
+ * @returns {Promise<object[] | number>} array of GeoJSON-style features (accumulate: true), or total count (accumulate: false)
  */
 export async function fetchCountyParcels(countyName, opts = {}) {
-  const { includeGeometry = true, onPage } = opts;
-  const features = [];
+  const { includeGeometry = true, accumulate = true, onPage } = opts;
+  const features = accumulate ? [] : null;
+  let total = 0;
   let offset = 0;
 
   while (true) {
@@ -73,14 +78,15 @@ export async function fetchCountyParcels(countyName, opts = {}) {
     }
 
     const page = body.features ?? [];
-    features.push(...page);
-    onPage?.(page.length, features.length);
+    total += page.length;
+    if (accumulate) features.push(...page);
+    await onPage?.(page, total);
 
     if (page.length < MAX_RECORDS_PER_QUERY) break;
     offset += MAX_RECORDS_PER_QUERY;
   }
 
-  return features;
+  return accumulate ? features : total;
 }
 
 // CLI entry point: node src/ingestion/cadastral.js [CountyName]
@@ -89,7 +95,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   console.log(`Fetching parcels for ${county} County...`);
 
   const features = await fetchCountyParcels(county, {
-    onPage: (count, total) => console.log(`  fetched page of ${count} (running total: ${total})`),
+    onPage: (page, total) => console.log(`  fetched page of ${page.length} (running total: ${total})`),
   });
 
   console.log(`Done: ${features.length} parcels for ${county} County.`);
