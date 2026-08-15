@@ -45,9 +45,14 @@ router.get("/", async (req, res, next) => {
 
     const where = conditions.join(" AND ");
 
+    // Separate arrays for the two queries — sharing (and mutating) one array between
+    // them is a race: pool.query() doesn't bind parameters synchronously, it queues the
+    // query and only serializes params once a connection is actually available, so a
+    // later push() here landed before the earlier query's params were read, leaving it
+    // bound against an array with 2 more elements than its SQL text has placeholders for.
     const countPromise = pool.query(`SELECT COUNT(*)::int AS count FROM properties WHERE ${where}`, params);
 
-    params.push(pageSize, offset);
+    const rowParams = [...params, pageSize, offset];
     const rowsPromise = pool.query(
       `
       SELECT
@@ -58,9 +63,9 @@ router.get("/", async (req, res, next) => {
       FROM properties
       WHERE ${where}
       ORDER BY total_value DESC NULLS LAST
-      LIMIT $${params.length - 1} OFFSET $${params.length}
+      LIMIT $${rowParams.length - 1} OFFSET $${rowParams.length}
       `,
-      params
+      rowParams
     );
 
     const [{ rows: countRows }, { rows }] = await Promise.all([countPromise, rowsPromise]);
