@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import cron from "node-cron";
 import { pool } from "./db/pool.js";
+import { runMigrations } from "./db/migrate.js";
 import { describeError } from "./lib/describeError.js";
 import { ingestAllCounties, TARGET_COUNTIES } from "./ingestion/runAll.js";
 import { loadCountyToDb } from "./ingestion/loadToDb.js";
@@ -119,6 +120,7 @@ app.listen(PORT, async () => {
 
   try {
     await waitForDb();
+    await runMigrations(pool);
 
     console.log(
       "Checking for counties missing data (self-healing: a container restart after a " +

@@ -1,9 +1,15 @@
--- Montana Multi-County Real Estate Tracker — v1 schema
+-- Montana Multi-County Real Estate Tracker — baseline schema.
 -- Scope matches the Phase 1 decision in Montana_Real_Estate_Tracker_Plan.md:
 -- parcel/ownership/assessed-value data (from the statewide Cadastral API) +
--- aggregate market trend data (from realtor board reports). No per-listing
--- or sale-price tables in v1 — Montana is a non-disclosure state and MLS
--- data isn't a legitimate free source (see Phase 1 Findings for detail).
+-- aggregate market trend data. No per-listing or sale-price tables in v1 —
+-- Montana is a non-disclosure state and MLS data isn't a legitimate free
+-- source (see Phase 1 Findings for detail).
+--
+-- Consolidates what was originally applied in three separate manual steps
+-- (initial schema, widening levy_district, adding the total_value index) into
+-- one baseline now that migrations track schema state going forward. Every
+-- statement here is idempotent (IF NOT EXISTS throughout), so replaying this
+-- against an already-migrated database is a safe no-op.
 
 CREATE EXTENSION IF NOT EXISTS postgis;
 
@@ -48,8 +54,8 @@ CREATE INDEX IF NOT EXISTS idx_properties_geom ON properties USING GIST (geom);
 -- a query isn't narrowed much by county/bbox (e.g. "All Counties" zoomed out statewide).
 CREATE INDEX IF NOT EXISTS idx_properties_total_value ON properties (total_value DESC NULLS LAST);
 
--- Aggregate market trend data, sourced from local realtor board / NMAR-style
--- published reports (manually logged or lightly parsed — not real-time).
+-- Aggregate market trend data — populated automatically from assessed values already
+-- ingested (see backend/src/ingestion/computeMarketMetrics.js), not a real MLS feed.
 CREATE TABLE IF NOT EXISTS market_metrics (
   id                    SERIAL PRIMARY KEY,
   county                VARCHAR(50) NOT NULL,

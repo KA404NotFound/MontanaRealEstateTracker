@@ -1,11 +1,18 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import CountySelector from './components/CountySelector.jsx';
 import PropertyMap from './components/PropertyMap.jsx';
 import PropertyTable from './components/PropertyTable.jsx';
 import PropertyDetail from './components/PropertyDetail.jsx';
 import MarketMetrics from './components/MarketMetrics.jsx';
 import OwnershipInsights from './components/OwnershipInsights.jsx';
-import { getCounties, getProperties, getProperty, getMarketMetrics, getOwnershipSummary } from './api.js';
+import {
+  getCounties,
+  getProperties,
+  getProperty,
+  getMarketMetrics,
+  getOwnershipSummary,
+  getPropertiesExportUrl,
+} from './api.js';
 import { formatNumber } from './format.js';
 
 // Approximate Montana state extent — used to fly the map out to a statewide view when
@@ -60,14 +67,27 @@ export default function App() {
   // actually visible on the map, not just a value-sorted slice of the whole county —
   // without this, panning into an ordinary neighborhood shows almost nothing, since
   // typical houses rarely crack a "top 200 by value" cut for an entire county.
+  //
+  // Panning fires this often, so requests can resolve out of order (a fast response to
+  // an old viewport landing after a slower response to a newer one). The AbortController
+  // cancels the previous in-flight request whenever this effect re-runs, so a stale
+  // response never overwrites a newer one — its promise rejects with AbortError, which
+  // is caught and ignored below rather than treated as a real error.
   useEffect(() => {
     if (!selectedCounty && !mapBounds) return;
+    const controller = new AbortController();
     setLoadingProperties(true);
     setError(null);
-    getProperties({ county: selectedCounty, bounds: mapBounds, q: debouncedSearch, page })
+    getProperties({ county: selectedCounty, bounds: mapBounds, q: debouncedSearch, page }, controller.signal)
       .then(setPropertyData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoadingProperties(false));
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingProperties(false);
+      });
+    return () => controller.abort();
   }, [selectedCounty, debouncedSearch, page, mapBounds]);
 
   // Aggregate market metrics are inherently per-county — nothing meaningful to show
@@ -91,13 +111,28 @@ export default function App() {
       .finally(() => setLoadingOwnership(false));
   }, [selectedCounty]);
 
+  // Same stale-response concern as the properties fetch — clicking through several
+  // markers quickly could otherwise let an earlier detail fetch resolve after a later
+  // one. A ref (not state) holds the controller since this needs to persist across
+  // calls without triggering re-renders itself.
+  const detailAbortRef = useRef(null);
+
   const handleSelectProperty = useCallback((id) => {
+    detailAbortRef.current?.abort();
+    const controller = new AbortController();
+    detailAbortRef.current = controller;
+
     setSelectedId(id);
     setLoadingDetail(true);
-    getProperty(id)
+    getProperty(id, controller.signal)
       .then(setSelectedDetail)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoadingDetail(false));
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingDetail(false);
+      });
   }, []);
 
   const handleBoundsChange = useCallback((leafletBounds) => {
@@ -147,6 +182,15 @@ export default function App() {
         <span className="result-count">
           {loadingProperties ? 'Loading…' : `${formatNumber(propertyData.total)} parcels in view`}
         </span>
+        {(selectedCounty || mapBounds) && (
+          <a
+            className="export-btn"
+            href={getPropertiesExportUrl({ county: selectedCounty, bounds: mapBounds, q: debouncedSearch })}
+            download
+          >
+            Export CSV
+          </a>
+        )}
       </div>
 
       <div className="content-row">

@@ -1,5 +1,5 @@
-async function request(path) {
-  const res = await fetch(`/api${path}`);
+async function request(path, signal) {
+  const res = await fetch(`/api${path}`, { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Request failed: ${res.status}`);
@@ -7,12 +7,9 @@ async function request(path) {
   return res.json();
 }
 
-export function getCounties() {
-  return request('/counties');
-}
-
-export function getProperties({ county, bounds, q, propertyType, minValue, maxValue, page = 1 }) {
-  const params = new URLSearchParams({ page: String(page) });
+function buildPropertyParams({ county, bounds, q, propertyType, minValue, maxValue, page }) {
+  const params = new URLSearchParams();
+  if (page) params.set('page', String(page));
   if (county) params.set('county', county);
   if (bounds) {
     params.set('minLat', bounds.minLat);
@@ -24,11 +21,27 @@ export function getProperties({ county, bounds, q, propertyType, minValue, maxVa
   if (propertyType) params.set('property_type', propertyType);
   if (minValue) params.set('min_value', minValue);
   if (maxValue) params.set('max_value', maxValue);
-  return request(`/properties?${params.toString()}`);
+  return params;
 }
 
-export function getProperty(id) {
-  return request(`/properties/${id}`);
+export function getCounties() {
+  return request('/counties');
+}
+
+export function getProperties({ county, bounds, q, propertyType, minValue, maxValue, page = 1 }, signal) {
+  const params = buildPropertyParams({ county, bounds, q, propertyType, minValue, maxValue, page });
+  return request(`/properties?${params.toString()}`, signal);
+}
+
+// Not a fetch — returns a URL for a real browser navigation/download (the server sets
+// Content-Disposition: attachment), so this just needs to mirror getProperties' filters.
+export function getPropertiesExportUrl({ county, bounds, q, propertyType, minValue, maxValue }) {
+  const params = buildPropertyParams({ county, bounds, q, propertyType, minValue, maxValue });
+  return `/api/properties/export?${params.toString()}`;
+}
+
+export function getProperty(id, signal) {
+  return request(`/properties/${id}`, signal);
 }
 
 export function getMarketMetrics(county) {

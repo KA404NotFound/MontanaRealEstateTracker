@@ -5,6 +5,70 @@ const router = Router();
 
 const MAX_PAGE_SIZE = 500;
 const DEFAULT_PAGE_SIZE = 200;
+const EXPORT_LIMIT = 50_000;
+
+const EXPORT_COLUMNS = [
+  "parcel_id",
+  "county",
+  "owner_name",
+  "address_line1",
+  "city_state_zip",
+  "property_type",
+  "total_acres",
+  "total_land_value",
+  "total_building_value",
+  "total_value",
+  "tax_year",
+];
+
+// Shared by the list and export endpoints so the filter logic (and its param-index
+// bookkeeping) only exists in one place.
+function buildFilter(query) {
+  const { county, q, property_type: propertyType, min_value: minValue, max_value: maxValue } = query;
+  const { minLat, minLng, maxLat, maxLng } = query;
+
+  const bboxParts = [minLng, minLat, maxLng, maxLat].map(Number);
+  const hasBbox = [minLat, minLng, maxLat, maxLng].every((v) => v !== undefined && v !== "") && bboxParts.every((n) => Number.isFinite(n));
+
+  const conditions = [];
+  const params = [];
+
+  if (county) {
+    params.push(county);
+    conditions.push(`county = $${params.length}`);
+  }
+  if (hasBbox) {
+    const [bMinLng, bMinLat, bMaxLng, bMaxLat] = bboxParts;
+    params.push(bMinLng, bMinLat, bMaxLng, bMaxLat);
+    const n = params.length;
+    // `&&` is the bounding-box-overlap operator — index-accelerated by idx_properties_geom.
+    conditions.push(`geom && ST_MakeEnvelope($${n - 3}, $${n - 2}, $${n - 1}, $${n}, 4326)`);
+  }
+  if (q) {
+    params.push(`%${q}%`);
+    conditions.push(`(owner_name ILIKE $${params.length} OR address_line1 ILIKE $${params.length} OR parcel_id ILIKE $${params.length})`);
+  }
+  if (propertyType) {
+    params.push(propertyType);
+    conditions.push(`property_type = $${params.length}`);
+  }
+  if (minValue) {
+    params.push(Number(minValue));
+    conditions.push(`total_value >= $${params.length}`);
+  }
+  if (maxValue) {
+    params.push(Number(maxValue));
+    conditions.push(`total_value <= $${params.length}`);
+  }
+
+  return { where: conditions.join(" AND "), params, hasBbox };
+}
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return "";
+  const str = String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
 
 // GET /api/properties?county=&minLat=&minLng=&maxLat=&maxLng=&q=&property_type=&min_value=&max_value=&page=&pageSize=
 //
@@ -19,52 +83,15 @@ const DEFAULT_PAGE_SIZE = 200;
 // /api/properties/:id for full geometry.
 router.get("/", async (req, res, next) => {
   try {
-    const { county, q, property_type: propertyType, min_value: minValue, max_value: maxValue } = req.query;
-    const { minLat, minLng, maxLat, maxLng } = req.query;
+    const { where, params, hasBbox } = buildFilter(req.query);
 
-    const bboxParts = [minLng, minLat, maxLng, maxLat].map(Number);
-    const hasBbox = [minLat, minLng, maxLat, maxLng].every((v) => v !== undefined && v !== "") && bboxParts.every((n) => Number.isFinite(n));
-
-    if (!county && !hasBbox) {
+    if (!req.query.county && !hasBbox) {
       return res.status(400).json({ error: "county or a map bounding box (minLat/minLng/maxLat/maxLng) is required" });
     }
 
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize, 10) || DEFAULT_PAGE_SIZE));
     const offset = (page - 1) * pageSize;
-
-    const conditions = [];
-    const params = [];
-
-    if (county) {
-      params.push(county);
-      conditions.push(`county = $${params.length}`);
-    }
-    if (hasBbox) {
-      const [bMinLng, bMinLat, bMaxLng, bMaxLat] = bboxParts;
-      params.push(bMinLng, bMinLat, bMaxLng, bMaxLat);
-      const n = params.length;
-      // `&&` is the bounding-box-overlap operator — index-accelerated by idx_properties_geom.
-      conditions.push(`geom && ST_MakeEnvelope($${n - 3}, $${n - 2}, $${n - 1}, $${n}, 4326)`);
-    }
-    if (q) {
-      params.push(`%${q}%`);
-      conditions.push(`(owner_name ILIKE $${params.length} OR address_line1 ILIKE $${params.length} OR parcel_id ILIKE $${params.length})`);
-    }
-    if (propertyType) {
-      params.push(propertyType);
-      conditions.push(`property_type = $${params.length}`);
-    }
-    if (minValue) {
-      params.push(Number(minValue));
-      conditions.push(`total_value >= $${params.length}`);
-    }
-    if (maxValue) {
-      params.push(Number(maxValue));
-      conditions.push(`total_value <= $${params.length}`);
-    }
-
-    const where = conditions.join(" AND ");
 
     // Separate arrays for the two queries — sharing (and mutating) one array between
     // them is a race: pool.query() doesn't bind parameters synchronously, it queues the
@@ -97,6 +124,41 @@ router.get("/", async (req, res, next) => {
       total: countRows[0].count,
       results: rows,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/properties/export — same filters as the list endpoint, streams a CSV of up
+// to EXPORT_LIMIT matching rows instead of one page. Registered before /:id so a
+// literal "export" path segment is never swallowed by the :id param route.
+router.get("/export", async (req, res, next) => {
+  try {
+    const { where, params, hasBbox } = buildFilter(req.query);
+
+    if (!req.query.county && !hasBbox) {
+      return res.status(400).json({ error: "county or a map bounding box (minLat/minLng/maxLat/maxLng) is required" });
+    }
+
+    const { rows } = await pool.query(
+      `
+      SELECT ${EXPORT_COLUMNS.join(", ")}
+      FROM properties
+      WHERE ${where}
+      ORDER BY total_value DESC NULLS LAST
+      LIMIT ${EXPORT_LIMIT}
+      `,
+      params
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="parcels.csv"');
+
+    const lines = [EXPORT_COLUMNS.join(",")];
+    for (const row of rows) {
+      lines.push(EXPORT_COLUMNS.map((col) => csvEscape(row[col])).join(","));
+    }
+    res.send(lines.join("\n"));
   } catch (err) {
     next(err);
   }

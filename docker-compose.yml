@@ -1,13 +1,11 @@
 services:
   db:
-    # Built from db/Dockerfile (which just COPYs schema.sql into the postgis image at
-    # /docker-entrypoint-initdb.d/) rather than a host bind-mount for the init script.
-    # A bind-mounted path that Docker can't find on the host silently becomes an empty
-    # directory instead of erroring — which is exactly what happened when this used
-    # `image:` + a volumes: bind-mount. Baking it into the image at build time avoids
-    # depending on how/where the deploying host's Compose implementation resolves
-    # relative host paths.
-    build: ./db
+    # No custom build/schema mount here anymore — schema setup is owned entirely by
+    # `backend`'s migration runner (backend/src/db/migrate.js), which runs on every
+    # startup against whatever's actually in the database, not just once on an empty
+    # volume. Postgres itself just needs to be up; the postgis/postgis image already
+    # enables the extension on first boot via its own bundled init scripts.
+    image: postgis/postgis:16-3.4
     container_name: montana-ret-db
     restart: unless-stopped
     environment:

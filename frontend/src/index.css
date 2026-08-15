@@ -92,6 +92,21 @@ body {
   white-space: nowrap;
 }
 
+.export-btn {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.export-btn:hover {
+  border-color: var(--accent);
+}
+
 .content-row {
   display: flex;
   gap: 1rem;
