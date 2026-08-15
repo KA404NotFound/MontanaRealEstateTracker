@@ -87,7 +87,14 @@ export async function fetchCountyParcels(countyName, opts = {}) {
 
   while (true) {
     const params = new URLSearchParams({
-      where: `CountyName='${countyName.replace(/'/g, "''")}'`,
+      // PARCELID IS NOT NULL excludes spatial filler geometry (gaps/unassigned areas
+      // needed for a complete parcel fabric) — verified these records carry literally no
+      // attribute data at all (no owner, value, address, type — nothing, just a polygon),
+      // so there's nothing for a property tracker to show for them. Filtering here avoids
+      // fetching, retrying, and logging failed inserts for records we'd always discard —
+      // varies a lot by county (a fraction of a percent in some, ~18% of raw records in
+      // Flathead specifically).
+      where: `CountyName='${countyName.replace(/'/g, "''")}' AND PARCELID IS NOT NULL`,
       outFields: OUT_FIELDS,
       f: "geojson",
       outSR: "4326",
