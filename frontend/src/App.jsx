@@ -23,6 +23,7 @@ export default function App() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
   const [mapBounds, setMapBounds] = useState(null);
+  const [heatmapMode, setHeatmapMode] = useState(false);
   const [propertyData, setPropertyData] = useState({ results: [], total: 0, pageSize: 200 });
   const [loadingProperties, setLoadingProperties] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
@@ -160,12 +161,16 @@ export default function App() {
           </div>
 
           <div className="map-pane">
+            <button className="heatmap-toggle" onClick={() => setHeatmapMode((v) => !v)}>
+              {heatmapMode ? 'Show Markers' : 'Show Heatmap'}
+            </button>
             <PropertyMap
               properties={propertyData.results}
               selectedId={selectedId}
               onSelect={handleSelectProperty}
               flyToBounds={flyToBounds}
               onBoundsChange={handleBoundsChange}
+              heatmapMode={heatmapMode}
             />
           </div>
         </div>

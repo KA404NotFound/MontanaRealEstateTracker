@@ -282,7 +282,7 @@ CREATE TABLE watchlist (
 
 ### Week 6+: Iteration & Advanced Features
 - [x] **Ownership analysis** ✅ Done (2026-08-15) — `GET /api/ownership/summary?county=` (`backend/src/routes/ownership.js`) returns top multi-parcel owners, an out-of-state-vs-Montana residency breakdown, and an LLC/Trust/Corp/Partnership/Government/Individual breakdown, all derived via text-pattern matching on `owner_name`/`owner_state` — no new data needed, works per-county or statewide. New `OwnershipInsights` frontend section, always visible (unlike Assessed Value Trends, this is meaningful even under "All Counties"). Explicitly labeled as heuristic, not an authoritative classification, since the source data has no structured owner-type field.
-- [ ] **Assessed-value heatmap** — Visualize `TotalValue`/acre by area
+- [x] **Assessed-value heatmap** ✅ Done (2026-08-15) — toggle button on the map (`frontend/src/components/PropertyMap.jsx`) switches between the existing marker view and a `leaflet.heat` density overlay weighted by assessed value *per acre* (not raw total value — normalizes for a $2M/500-acre ranch vs. a $300k/0.2-acre in-town lot meaning very different things). Log-transformed and normalized to the currently-loaded dataset's own range so extreme per-acre outliers (tiny urban lots) don't wash out the gradient. No backend changes — computed client-side from data the map already has.
 - [ ] **Year-over-year assessment change tracking** — snapshot `TotalValue` each ingestion run, chart drift over time
 - [ ] **Export** — Download filtered results as CSV
 - [ ] **Mobile Responsiveness** — one CSS breakpoint added, not tested on an actual device

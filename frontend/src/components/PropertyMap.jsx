@@ -1,4 +1,6 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import L from 'leaflet';
+import 'leaflet.heat';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap, useMapEvents } from 'react-leaflet';
 import { formatCurrency } from '../format.js';
 
@@ -12,6 +14,27 @@ function valueColor(totalValue) {
   if (totalValue < 200_000) return '#34d399';
   if (totalValue < 500_000) return '#fbbf24';
   return '#f87171';
+}
+
+const MIN_ACRES_FOR_HEAT = 0.05; // below this, total_value / total_acres blows up to meaningless spikes
+
+// Weighted by assessed value *per acre*, not raw total_value — a $2M/500-acre ranch and
+// a $300k/0.2-acre in-town lot mean very different things about where value is actually
+// concentrated. Log-transformed and normalized to the current dataset's own range so a
+// handful of extreme per-acre outliers (small urban lots) don't wash out the gradient
+// for everything else in view.
+function computeHeatPoints(properties) {
+  const withValue = properties
+    .filter((p) => p.latitude && p.longitude && p.total_value && p.total_acres && p.total_acres > MIN_ACRES_FOR_HEAT)
+    .map((p) => ({ lat: p.latitude, lng: p.longitude, logValue: Math.log10(p.total_value / p.total_acres + 1) }));
+
+  if (withValue.length === 0) return [];
+
+  const min = Math.min(...withValue.map((p) => p.logValue));
+  const max = Math.max(...withValue.map((p) => p.logValue));
+  const range = max - min || 1;
+
+  return withValue.map((p) => [p.lat, p.lng, Math.max(0.1, (p.logValue - min) / range)]);
 }
 
 // Keeps Leaflet's internal size cache in sync when the map container's pixel size
@@ -78,8 +101,32 @@ function FlyToSelected({ properties, selectedId }) {
   return null;
 }
 
-export default function PropertyMap({ properties, selectedId, onSelect, flyToBounds, onBoundsChange }) {
+// Imperative Leaflet layer (leaflet.heat isn't a react-leaflet component) — added/
+// removed from the map directly via a ref rather than relying on react-leaflet's
+// declarative layer model.
+function HeatmapLayer({ points, visible }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const layer = L.heatLayer(points, { radius: 22, blur: 18, maxZoom: 17 });
+    layer.addTo(map);
+    layerRef.current = layer;
+
+    return () => {
+      layer.remove();
+      layerRef.current = null;
+    };
+  }, [points, visible, map]);
+
+  return null;
+}
+
+export default function PropertyMap({ properties, selectedId, onSelect, flyToBounds, onBoundsChange, heatmapMode }) {
   const points = useMemo(() => properties.filter((p) => p.latitude && p.longitude), [properties]);
+  const heatPoints = useMemo(() => computeHeatPoints(properties), [properties]);
 
   return (
     <MapContainer center={DEFAULT_CENTER} zoom={DEFAULT_ZOOM} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
@@ -91,28 +138,32 @@ export default function PropertyMap({ properties, selectedId, onSelect, flyToBou
       <FlyToBounds bounds={flyToBounds} />
       <BoundsWatcher onBoundsChange={onBoundsChange} />
       <FlyToSelected properties={points} selectedId={selectedId} />
-      {points.map((p) => (
-        <CircleMarker
-          key={p.id}
-          center={[p.latitude, p.longitude]}
-          radius={p.id === selectedId ? 9 : 6}
-          pathOptions={{
-            color: p.id === selectedId ? '#1d4ed8' : valueColor(p.total_value),
-            fillColor: valueColor(p.total_value),
-            fillOpacity: 0.8,
-            weight: p.id === selectedId ? 3 : 1,
-          }}
-          eventHandlers={{ click: () => onSelect(p.id) }}
-        >
-          <Popup>
-            <strong>{p.owner_name || 'Unknown owner'}</strong>
-            <br />
-            {p.address_line1 || 'No address on file'}
-            <br />
-            {formatCurrency(p.total_value)} assessed
-          </Popup>
-        </CircleMarker>
-      ))}
+      {heatmapMode ? (
+        <HeatmapLayer points={heatPoints} visible={heatmapMode} />
+      ) : (
+        points.map((p) => (
+          <CircleMarker
+            key={p.id}
+            center={[p.latitude, p.longitude]}
+            radius={p.id === selectedId ? 9 : 6}
+            pathOptions={{
+              color: p.id === selectedId ? '#1d4ed8' : valueColor(p.total_value),
+              fillColor: valueColor(p.total_value),
+              fillOpacity: 0.8,
+              weight: p.id === selectedId ? 3 : 1,
+            }}
+            eventHandlers={{ click: () => onSelect(p.id) }}
+          >
+            <Popup>
+              <strong>{p.owner_name || 'Unknown owner'}</strong>
+              <br />
+              {p.address_line1 || 'No address on file'}
+              <br />
+              {formatCurrency(p.total_value)} assessed
+            </Popup>
+          </CircleMarker>
+        ))
+      )}
     </MapContainer>
   );
 }
