@@ -35,7 +35,7 @@ This is the one piece without a clean, free, ToS-compliant answer, and it's wort
 - **Zillow/Redfin scraping** (delivers the v1 feature set as originally scoped, but against ToS — real risk of IP blocks/legal exposure)
 - **Paid data source** (e.g., a licensed-agent IDX relationship, or a commercial real estate data API) — costs money, breaks the "free data only" assumption
 
-**Decision needed from you before Phase 1 is "done."** See question below.
+**Decision (2026-08-14):** Go **aggregate-only** for listings/prices in v1. No per-property listing table, no price-on-map, no scraping of Zillow/Redfin/406MLS. v1 is a parcel/ownership/assessed-value explorer built entirely on the statewide Cadastral API, with market trend charts sourced from NMAR/local board published reports (manually logged or lightly parsed, since these are typically PDF/blog-style releases, not structured data). Per-listing data is an explicit v2+ decision, to be revisited only via a legitimate path (paid IDX/data vendor) — not scraping. This descopes the `listings` table and the deed-sourced parts of `sales`/`price_history` from v1 (see Phase 3 schema, Phase 4 roadmap, Phase 5 deliverables below — kept in the doc as future-facing but marked accordingly).
 
 ---
 
@@ -111,6 +111,8 @@ County Data Sources
 ---
 
 ## Phase 3: Database Schema (PostgreSQL)
+
+**Note (2026-08-14):** Per the Phase 1 decision, v1 populates `properties` (from the Cadastral API) and `market_metrics` (aggregate, from realtor board reports). `listings`, `sales`, and `price_history` are kept below as forward-looking schema for if/when a legitimate per-listing data source is secured (see Phase 4 Week 6+) — they are not populated in v1, and `sales.sale_price`/deed-sourced `price_history` specifically cannot be populated from county deed records at all (Montana non-disclosure law).
 
 ### Core Tables
 
@@ -220,82 +222,66 @@ CREATE TABLE watchlist (
 
 ## Phase 4: Implementation Roadmap
 
-### Week 1: Data Source Audit
-- [ ] Map out each county's data access (URL, format, frequency)
-- [ ] Test if assessor sites are scrapeable or have bulk download options
-- [ ] Document any API keys or special access requirements
-- [ ] Create data source spreadsheet (County → Source → Access Method → Update Frequency)
-- [ ] Note any terms of service/scraping restrictions
+*(Revised 2026-08-14 for the Cadastral-API-first, aggregate-only strategy — see Phase 1 Findings above.)*
 
-**Deliverable:** Data Source Inventory Document
+### Week 1: Cadastral API Client + Schema
+- [ ] Set up Node.js project (Express, axios, node-cron)
+- [ ] Build a paginated client for `msdi_cadastral_map_v1/MapServer/1` (handle the 2,000-record/query cap via `resultOffset`)
+- [ ] Query Flathead County (`CountyName='Flathead'`), validate field mapping against the schema in Phase 3
+- [ ] Confirm the same client works unmodified against the other 5 target counties (it should — same endpoint, different `where` filter)
 
----
-
-### Week 2: Scraper v1 (Flathead County)
-- [ ] Set up Node.js project with Express, Cheerio, axios
-- [ ] Build HTML scraper for Flathead County assessor records
-- [ ] Parse: address, parcel ID, owner, assessed value, property type
-- [ ] Handle edge cases: missing data, malformed HTML, special characters
-- [ ] Test on 100+ properties, validate data quality
-- [ ] Document parsing logic for future county adaptations
-
-**Deliverable:** Working scraper for Flathead County, sample data in JSON
+**Deliverable:** Working Cadastral API client returning clean JSON for all 6 counties
 
 ---
 
-### Week 3: Database Setup & Data Ingestion
-- [ ] Set up PostgreSQL locally and on hosting (Render or similar)
-- [ ] Create schema from Phase 3
-- [ ] Build data insertion pipeline (validate → deduplicate → insert)
-- [ ] Add geocoding (convert addresses to lat/long via Nominatim or similar)
-- [ ] Handle updates (detect changes, update timestamps)
-- [ ] Build logging/monitoring for scraper health
-- [ ] Set up automated daily/weekly cron job
+### Week 2: Database Setup & Data Ingestion
+- [ ] Set up PostgreSQL locally and on hosting (Render or similar), enable PostGIS
+- [ ] Create schema from Phase 3 (trimmed to `properties`, `market_metrics`, `watchlist` — see note below)
+- [ ] Build insertion pipeline (validate → upsert on `parcel_id` → insert)
+- [ ] Store `Shape` geometry directly (Cadastral API returns polygons — no separate geocoding step needed for parcels that have geometry)
+- [ ] Set up automated monthly cron pull (matches the Cadastral data's own monthly update cadence — no need to poll more often)
 
-**Deliverable:** Flathead County data in PostgreSQL, automated ingestion working
+**Deliverable:** All 6 counties' parcel/ownership/assessed-value data in PostgreSQL, automated ingestion working
 
 ---
 
-### Week 4: Scale to Other Counties
-- [ ] Audit each county's data format (may differ from Flathead)
-- [ ] Build modular scraper functions (one per county as needed)
-- [ ] Adapt HTML parsing for county-specific variations
-- [ ] Consolidate scrapers into single codebase
-- [ ] Run initial bulk load for all 5-6 counties
-- [ ] Validate data consistency across counties
+### Week 3: Aggregate Market Metrics Ingestion
+- [ ] Identify the realtor association/board covering each of the 6 counties (406MLS region vs. others — e.g. Billings/Yellowstone likely has a separate board; confirm during this week)
+- [ ] For each, find their published market report cadence/format (PDF, blog post, etc.)
+- [ ] Build a lightweight manual-or-semi-automated pipeline to log median price / DOM / inventory into `market_metrics` per report cycle (this is inherently lower-frequency and less structured than the Cadastral feed — treat as best-effort, not real-time)
 
-**Deliverable:** All 6 counties' assessor data in database
+**Deliverable:** `market_metrics` populated with at least one trend series per county
 
 ---
 
-### Week 5-6: Frontend Dashboard v1
-- [ ] Set up React project (create-react-app or Vite)
+### Week 4-5: Frontend Dashboard v1
+- [ ] Set up React project (Vite)
 - [ ] Build REST API endpoints:
   - `GET /api/counties` — list all counties with summary stats
-  - `GET /api/listings?county=&property_type=` — filtered listings
-  - `GET /api/properties/:id` — detailed property view
-  - `GET /api/market-metrics/:county` — price trends
+  - `GET /api/properties?county=&property_type=&owner=` — filtered parcel search
+  - `GET /api/properties/:id` — detailed property view (owner, assessed value, geometry)
+  - `GET /api/market-metrics/:county` — aggregate price/inventory trends
 - [ ] Dashboard layout:
   - County selector (dropdown or tabs)
-  - Recent listings table (address, price, date, status)
-  - Price trend chart (median price over time)
-  - Map showing active listings
-  - Property search (by address/parcel number)
+  - Interactive parcel map (Leaflet/Mapbox, colored by assessed value or property type)
+  - Property search (by address, owner name, or parcel number)
+  - Property detail view (full parcel info + assessed value breakdown)
+  - Market summary panel (aggregate trend chart per county, sourced from Week 3 data)
 - [ ] Connect frontend to backend API
 - [ ] Deploy frontend to Vercel
 
-**Deliverable:** Live dashboard accessible at deployed URL
+**Deliverable:** Live dashboard accessible at deployed URL — a parcel/ownership/assessed-value explorer with aggregate market context, not a listings site
 
 ---
 
-### Week 7+: Iteration & Advanced Features
-- [ ] **Alerts** — Email/SMS when new listing matches criteria or price drops
-- [ ] **Heatmap** — Visualize price per sqft by neighborhood
-- [ ] **Seller/Buyer Analysis** — Identify investor activity, corporate purchases
-- [ ] **Price Predictions** — Train simple ML model on historical sales
+### Week 6+: Iteration & Advanced Features
+- [ ] **Ownership analysis** — Identify multi-parcel owners, out-of-state owners, corporate/LLC ownership patterns (all derivable from `OwnerName`/`OwnerAddress` in the Cadastral data already in hand)
+- [ ] **Assessed-value heatmap** — Visualize `TotalValue`/acre by area
+- [ ] **Year-over-year assessment change tracking** — snapshot `TotalValue` each ingestion run, chart drift over time
 - [ ] **Export** — Download filtered results as CSV
-- [ ] **Mobile Responsiveness** — Ensure dashboard works on phones
-- [ ] **Performance** — Add database indexes, caching for fast queries
+- [ ] **Mobile Responsiveness**
+- [ ] **Performance** — spatial indexes, caching for fast map queries
+- [ ] **Revisit listings/sold-price data** — only via a legitimate path (paid IDX/data vendor), if still wanted, per the Phase 1 decision
 
 **Deliverable:** Enhanced dashboard with additional features and analytics
 
@@ -303,21 +289,22 @@ CREATE TABLE watchlist (
 
 ## Phase 5: Quick Win v1 Deliverables
 
-Aim for this first release (Weeks 1-6):
+*(Revised 2026-08-14 — see Phase 1 Findings for why listings/sold-price were descoped.)*
+
+Aim for this first release (Weeks 1-5):
 
 ### Data
-- ✅ 6 Montana counties' assessor records (property details, assessed values)
-- ✅ Recent sales data (last 12 months from county deeds)
-- ✅ Zillow/Redfin scrape (active listings, price history)
+- ✅ 6 Montana counties' parcel records (owner, address, assessed value, acreage, geometry) — from the statewide Cadastral API
+- ✅ Aggregate market trend data (median price, DOM, inventory) per county — from local realtor board reports
+- ❌ ~~Per-property listing/sold data~~ — descoped (non-disclosure state + no scrapeable MLS access; see Phase 1 Findings)
 
 ### Dashboard Features
 - ✅ County selector
-- ✅ Recent listings table (address, price, days on market, status)
-- ✅ Price trend chart (median/average price over time per county)
-- ✅ Interactive map (markers for active listings, color by price range)
-- ✅ Property search (by address, parcel number, or price range)
-- ✅ Property detail view (full info, price history, image)
-- ✅ Market summary (active listings, closed sales, days on market per county)
+- ✅ Interactive parcel map (colored by assessed value/property type)
+- ✅ Property search (by address, owner name, or parcel number)
+- ✅ Property detail view (owner, assessed value breakdown, acreage, geometry)
+- ✅ Market summary (aggregate trend chart per county)
+- ❌ ~~Recent listings table~~ / ❌ ~~price-on-map~~ — descoped, v2+ if a legitimate data source is secured
 
 ### No Auth
 - Public site, no login required
