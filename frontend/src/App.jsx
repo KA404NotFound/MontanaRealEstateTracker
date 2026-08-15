@@ -94,31 +94,33 @@ export default function App() {
         </span>
       </div>
 
-      <div className="main-layout">
-        <div className="table-pane">
-          <PropertyTable properties={propertyData.results} selectedId={selectedId} onSelect={handleSelectProperty} />
-          <div className="pagination">
-            <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
-            <span>Page {page} of {formatNumber(totalPages)}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</button>
+      <div className="content-row">
+        <div className="main-layout">
+          <div className="table-pane">
+            <PropertyTable properties={propertyData.results} selectedId={selectedId} onSelect={handleSelectProperty} />
+            <div className="pagination">
+              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</button>
+              <span>Page {page} of {formatNumber(totalPages)}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>Next</button>
+            </div>
+          </div>
+
+          <div className="map-pane">
+            <PropertyMap properties={propertyData.results} selectedId={selectedId} onSelect={handleSelectProperty} />
           </div>
         </div>
 
-        <div className="map-pane">
-          <PropertyMap properties={propertyData.results} selectedId={selectedId} onSelect={handleSelectProperty} />
-        </div>
+        {selectedId && (
+          <PropertyDetail
+            property={selectedDetail}
+            loading={loadingDetail}
+            onClose={() => {
+              setSelectedId(null);
+              setSelectedDetail(null);
+            }}
+          />
+        )}
       </div>
-
-      {selectedId && (
-        <PropertyDetail
-          property={selectedDetail}
-          loading={loadingDetail}
-          onClose={() => {
-            setSelectedId(null);
-            setSelectedDetail(null);
-          }}
-        />
-      )}
 
       <section className="market-metrics-section">
         <h2>Market Trends — {selectedCounty}</h2>
