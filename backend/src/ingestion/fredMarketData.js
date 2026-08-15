@@ -115,114 +115,111 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchLatestObservation(seriesId, apiKey) {
+// Full history, not just the latest point: no `limit`, ascending order. FRED's default
+// limit (100000) is already far beyond what a monthly county series could ever return, so
+// there's no pagination to worry about here.
+async function fetchSeriesObservations(seriesId, apiKey) {
   const params = new URLSearchParams({
     series_id: seriesId,
     api_key: apiKey,
     file_type: "json",
-    sort_order: "desc",
-    limit: "1",
+    sort_order: "asc",
   });
 
   const res = await fetch(`${FRED_API_BASE}?${params.toString()}`);
   if (!res.ok) {
-    if (res.status === 400) return null; // "series does not exist" — expected for small counties
+    if (res.status === 400) return []; // "series does not exist" — expected for small counties
     throw new Error(`FRED request failed for ${seriesId}: ${res.status} ${res.statusText}`);
   }
 
   const body = await res.json();
-  const obs = body.observations?.[0];
-  if (!obs || obs.value === ".") return null; // "." is FRED's null-observation marker
-  return { date: obs.date, value: Number(obs.value) };
+  return (body.observations ?? [])
+    .filter((obs) => obs.value !== ".") // "." is FRED's null-observation marker
+    .map((obs) => ({ date: obs.date, value: Number(obs.value) }));
 }
 
-async function fetchCountyMarketData(county, apiKey) {
+async function fetchCountyMarketHistory(county, apiKey) {
   const fips = COUNTY_FIPS[county];
   if (!fips) throw new Error(`No FIPS code mapped for county: ${county}`);
 
   // The three metrics are independent FRED series that don't always update in lockstep
   // (revision timing, a temporarily-suppressed low-volume month, etc. routinely cause a
-  // month of skew between siblings for the same county). Taking each series' own latest
-  // date and writing every value under a single max() date would silently misattribute a
-  // stale value to a period it doesn't actually belong to. Instead: collect each metric
-  // with its own real date, pick whichever date the most metrics agree on (ties broken
-  // toward the more recent one), and only keep values that actually match that date —
-  // a metric that's out of step with the rest gets dropped for this run, not mislabeled.
-  const observations = {};
+  // month of skew between siblings for the same county). Rather than forcing all three
+  // under one shared date per period (which would either misattribute a stale value or
+  // drop a metric that's simply on its own schedule), each observation is filed under its
+  // own real date — a period with only 2 of 3 metrics just has a null third column.
+  const periods = {};
   for (const { seriesPrefix, column } of METRICS) {
-    const obs = await fetchLatestObservation(`${seriesPrefix}${fips}`, apiKey);
+    const observations = await fetchSeriesObservations(`${seriesPrefix}${fips}`, apiKey);
     await sleep(REQUEST_DELAY_MS);
-    if (obs) observations[column] = obs;
+    for (const { date, value } of observations) {
+      periods[date] ??= {};
+      periods[date][column] = value;
+    }
   }
 
-  const dates = Object.values(observations).map((o) => o.date);
-  if (dates.length === 0) return null;
-
-  const dateCounts = {};
-  for (const d of dates) dateCounts[d] = (dateCounts[d] || 0) + 1;
-  const [periodDate] = Object.keys(dateCounts).sort((a, b) => {
-    const byAgreement = dateCounts[b] - dateCounts[a];
-    return byAgreement !== 0 ? byAgreement : a < b ? 1 : -1;
-  });
-
-  const result = {};
-  for (const [column, obs] of Object.entries(observations)) {
-    if (obs.date === periodDate) result[column] = obs.value;
-  }
-
-  return { ...result, periodDate };
+  return Object.entries(periods)
+    .map(([periodDate, values]) => ({ periodDate, ...values }))
+    .sort((a, b) => (a.periodDate < b.periodDate ? -1 : a.periodDate > b.periodDate ? 1 : 0));
 }
 
 /**
- * Fetches and upserts FRED market data for every target county. Skips gracefully
- * (logged, not an error) for counties with no FRED series at all. No-ops entirely if
- * FRED_API_KEY isn't set, rather than failing the caller.
+ * Fetches and upserts each target county's FULL available FRED history (not just the
+ * latest point) — one market_metrics row per period. Re-running is idempotent: every
+ * period upserts on the (county, period_date, period_type, source) key, so a repeat run
+ * just refreshes existing rows (picking up FRED revisions) rather than duplicating them.
+ * Skips gracefully (logged, not an error) for counties with no FRED series at all. No-ops
+ * entirely if FRED_API_KEY isn't set, rather than failing the caller.
  *
  * @param {import('pg').Pool} pool
  * @param {{ log?: (msg: string) => void }} [opts]
- * @returns {Promise<{ updated: number, skipped: number }>}
+ * @returns {Promise<{ updated: number, skipped: number, periodsWritten: number }>}
  */
 export async function ingestFredMarketData(pool, opts = {}) {
   const { log = console.log } = opts;
   const apiKey = process.env.FRED_API_KEY;
   if (!apiKey) {
     log("FRED_API_KEY not set — skipping FRED market data ingestion.");
-    return { updated: 0, skipped: 0 };
+    return { updated: 0, skipped: 0, periodsWritten: 0 };
   }
 
   let updated = 0;
   let skipped = 0;
+  let periodsWritten = 0;
 
   for (const county of TARGET_COUNTIES) {
     try {
-      const data = await fetchCountyMarketData(county, apiKey);
-      if (!data) {
+      const periods = await fetchCountyMarketHistory(county, apiKey);
+      if (periods.length === 0) {
         skipped++;
         continue;
       }
 
-      await pool.query(
-        `
-        INSERT INTO market_metrics
-          (county, period_date, period_type, source, median_price, active_listings, avg_days_on_market, notes)
-        VALUES ($1, $2, 'monthly', $3, $4, $5, $6, $7)
-        ON CONFLICT (county, period_date, period_type, source)
-        DO UPDATE SET
-          median_price = EXCLUDED.median_price,
-          active_listings = EXCLUDED.active_listings,
-          avg_days_on_market = EXCLUDED.avg_days_on_market,
-          notes = EXCLUDED.notes
-        `,
-        [county, data.periodDate, SOURCE_LABEL, data.median_price ?? null, data.active_listings ?? null, data.avg_days_on_market ?? null, NOTES]
-      );
+      for (const period of periods) {
+        await pool.query(
+          `
+          INSERT INTO market_metrics
+            (county, period_date, period_type, source, median_price, active_listings, avg_days_on_market, notes)
+          VALUES ($1, $2, 'monthly', $3, $4, $5, $6, $7)
+          ON CONFLICT (county, period_date, period_type, source)
+          DO UPDATE SET
+            median_price = EXCLUDED.median_price,
+            active_listings = EXCLUDED.active_listings,
+            avg_days_on_market = EXCLUDED.avg_days_on_market,
+            notes = EXCLUDED.notes
+          `,
+          [county, period.periodDate, SOURCE_LABEL, period.median_price ?? null, period.active_listings ?? null, period.avg_days_on_market ?? null, NOTES]
+        );
+        periodsWritten++;
+      }
       updated++;
     } catch (err) {
       log(`FRED market data fetch failed for ${county}: ${describeError(err)}`);
     }
   }
 
-  log(`FRED market data: ${updated} counties updated, ${skipped} had no FRED series available.`);
-  return { updated, skipped };
+  log(`FRED market data: ${updated} counties updated (${periodsWritten} period-rows), ${skipped} had no FRED series available.`);
+  return { updated, skipped, periodsWritten };
 }
 
 // CLI entry point: node src/ingestion/fredMarketData.js
